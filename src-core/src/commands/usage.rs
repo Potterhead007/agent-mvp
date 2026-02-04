@@ -431,4 +431,411 @@ mod tests {
         .unwrap();
         assert_eq!(get_default_quota(tmp.path().to_str().unwrap()), 50);
     }
+
+    #[test]
+    fn get_default_quota_ignores_malformed_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("openclaw.json"), "not json").unwrap();
+        assert_eq!(get_default_quota(tmp.path().to_str().unwrap()), 100);
+    }
+
+    #[test]
+    fn get_default_quota_ignores_missing_quotas_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = serde_json::json!({ "settings": {} });
+        fs::write(
+            tmp.path().join("openclaw.json"),
+            serde_json::to_string(&config).unwrap(),
+        ).unwrap();
+        assert_eq!(get_default_quota(tmp.path().to_str().unwrap()), 100);
+    }
+
+    // -----------------------------------------------------------------------
+    // compute_quota_check boundary cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn compute_quota_check_one_below_limit() {
+        let mut usage = make_usage("user1", "telegram");
+        usage.daily_counts.insert(today_key(), 99);
+        let check = compute_quota_check(&usage, 100);
+        assert!(check.allowed);
+        assert_eq!(check.used, 99);
+    }
+
+    #[test]
+    fn compute_quota_check_per_user_quota_overrides_default() {
+        let mut usage = make_usage("user1", "telegram");
+        usage.daily_quota = Some(10);
+        usage.daily_counts.insert(today_key(), 10);
+        let check = compute_quota_check(&usage, 100);
+        assert!(!check.allowed);
+        assert_eq!(check.limit, 10);
+    }
+
+    #[test]
+    fn compute_quota_check_negative_one_is_unlimited() {
+        let mut usage = make_usage("user1", "telegram");
+        usage.daily_quota = Some(-1);
+        usage.daily_counts.insert(today_key(), u64::MAX);
+        let check = compute_quota_check(&usage, 100);
+        assert!(check.allowed);
+    }
+
+    #[test]
+    fn compute_quota_check_zero_is_blocked_even_with_no_usage() {
+        let mut usage = make_usage("user1", "telegram");
+        usage.daily_quota = Some(0);
+        let check = compute_quota_check(&usage, 100);
+        assert!(!check.allowed);
+        assert_eq!(check.used, 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // prune_old_entries edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn prune_removes_malformed_date_keys() {
+        let mut usage = make_usage("user1", "telegram");
+        usage.daily_counts.insert("not-a-date".to_string(), 5);
+        usage.daily_counts.insert(today_key(), 10);
+        prune_old_entries(&mut usage);
+        assert!(!usage.daily_counts.contains_key("not-a-date"));
+        assert!(usage.daily_counts.contains_key(&today_key()));
+    }
+
+    #[test]
+    fn prune_keeps_recent_entries() {
+        let mut usage = make_usage("user1", "telegram");
+        let yesterday = (chrono::Utc::now() - chrono::Duration::days(1))
+            .format("%Y-%m-%d").to_string();
+        usage.daily_counts.insert(yesterday.clone(), 5);
+        usage.daily_counts.insert(today_key(), 10);
+        prune_old_entries(&mut usage);
+        assert!(usage.daily_counts.contains_key(&yesterday));
+        assert!(usage.daily_counts.contains_key(&today_key()));
+    }
+
+    #[test]
+    fn prune_removes_exactly_at_90_day_boundary() {
+        let mut usage = make_usage("user1", "telegram");
+        let exactly_90 = (chrono::Utc::now() - chrono::Duration::days(90))
+            .format("%Y-%m-%d").to_string();
+        let day_91 = (chrono::Utc::now() - chrono::Duration::days(91))
+            .format("%Y-%m-%d").to_string();
+        usage.daily_counts.insert(exactly_90.clone(), 5);
+        usage.daily_counts.insert(day_91.clone(), 3);
+        usage.daily_counts.insert(today_key(), 10);
+        prune_old_entries(&mut usage);
+        // 90 days ago should be kept (>= cutoff)
+        assert!(usage.daily_counts.contains_key(&exactly_90));
+        // 91 days ago should be pruned
+        assert!(!usage.daily_counts.contains_key(&day_91));
+    }
+
+    // -----------------------------------------------------------------------
+    // record_usage integration
+    // -----------------------------------------------------------------------
+
+    fn make_test_state(tmp: &std::path::Path) -> crate::state::AppState {
+        let audit = tmp.join("audit.log");
+        let _ = fs::write(&audit, "");
+        crate::state::AppState {
+            openclaw_dir: tmp.to_str().unwrap().to_string(),
+            vault_dir: String::new(),
+            audit_log_path: audit.to_str().unwrap().to_string(),
+            vault: std::sync::Mutex::new(crate::state::VaultRuntime::default()),
+        }
+    }
+
+    #[test]
+    fn record_usage_creates_new_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        let check = record_usage(
+            &state,
+            "telegram".to_string(),
+            "user1".to_string(),
+            Some("Alice".to_string()),
+        ).unwrap();
+
+        assert!(check.allowed);
+        assert_eq!(check.used, 1);
+        assert_eq!(check.limit, 100); // default quota
+
+        // Verify file was written
+        let usage = read_usage(tmp.path().to_str().unwrap(), "telegram", "user1").unwrap();
+        assert_eq!(usage.total_messages, 1);
+        assert_eq!(usage.display_name, Some("Alice".to_string()));
+    }
+
+    #[test]
+    fn record_usage_increments_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+        record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+        let check = record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+
+        assert_eq!(check.used, 3);
+
+        let usage = read_usage(tmp.path().to_str().unwrap(), "telegram", "user1").unwrap();
+        assert_eq!(usage.total_messages, 3);
+    }
+
+    #[test]
+    fn record_usage_stops_at_quota() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        // Set low default quota
+        let config = serde_json::json!({
+            "settings": { "quotas": { "defaultDaily": 2 } }
+        });
+        fs::write(
+            tmp.path().join("openclaw.json"),
+            serde_json::to_string(&config).unwrap(),
+        ).unwrap();
+
+        // Quota check happens BEFORE increment, but the RETURNED check is
+        // computed AFTER increment. So:
+        // Call 1: pre-check used=0 < 2 → allowed, increments to 1
+        //   Returned: allowed=true (1 < 2), used=1
+        let c1 = record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+        assert!(c1.allowed);
+        assert_eq!(c1.used, 1);
+
+        // Call 2: pre-check used=1 < 2 → allowed, increments to 2
+        //   Returned: allowed=false (2 is NOT < 2), used=2
+        //   The message WAS recorded, but the returned check signals "quota exhausted"
+        let c2 = record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+        assert_eq!(c2.used, 2);
+        // c2.allowed is false because returned check is post-increment
+
+        // Call 3: pre-check used=2 >= 2 → rejected, count stays at 2
+        let c3 = record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+        assert!(!c3.allowed);
+        assert_eq!(c3.used, 2);
+
+        // Verify total: exactly 2 messages were actually recorded
+        let usage = read_usage(tmp.path().to_str().unwrap(), "telegram", "user1").unwrap();
+        assert_eq!(usage.total_messages, 2);
+    }
+
+    #[test]
+    fn record_usage_updates_display_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        record_usage(&state, "telegram".to_string(), "user1".to_string(), Some("Old".to_string())).unwrap();
+        record_usage(&state, "telegram".to_string(), "user1".to_string(), Some("New".to_string())).unwrap();
+
+        let usage = read_usage(tmp.path().to_str().unwrap(), "telegram", "user1").unwrap();
+        assert_eq!(usage.display_name, Some("New".to_string()));
+    }
+
+    #[test]
+    fn record_usage_rejects_invalid_channel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+        let result = record_usage(&state, "../escape".to_string(), "user1".to_string(), None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn record_usage_rejects_invalid_user_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+        let result = record_usage(&state, "telegram".to_string(), "../../etc".to_string(), None);
+        assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // check_quota
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn check_quota_new_user_allowed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        let check = check_quota(&state, "telegram".to_string(), "newuser".to_string()).unwrap();
+        assert!(check.allowed);
+        assert_eq!(check.used, 0);
+        assert_eq!(check.limit, 100);
+    }
+
+    #[test]
+    fn check_quota_rejects_invalid_ids() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+        assert!(check_quota(&state, "".to_string(), "user".to_string()).is_err());
+        assert!(check_quota(&state, "ch".to_string(), "".to_string()).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // get_user_usage
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn get_user_usage_returns_error_for_missing_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+        let result = get_user_usage(&state, "telegram".to_string(), "nobody".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No usage record"));
+    }
+
+    #[test]
+    fn get_user_usage_returns_existing_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+        let usage = get_user_usage(&state, "telegram".to_string(), "user1".to_string()).unwrap();
+        assert_eq!(usage.total_messages, 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // list_channel_users
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn list_channel_users_empty_channel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+        let users = list_channel_users(&state, "telegram".to_string()).unwrap();
+        assert!(users.is_empty());
+    }
+
+    #[test]
+    fn list_channel_users_returns_sorted_by_messages() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        // user1: 1 message, user2: 3 messages
+        record_usage(&state, "telegram".to_string(), "user1".to_string(), Some("Alice".to_string())).unwrap();
+        record_usage(&state, "telegram".to_string(), "user2".to_string(), Some("Bob".to_string())).unwrap();
+        record_usage(&state, "telegram".to_string(), "user2".to_string(), None).unwrap();
+        record_usage(&state, "telegram".to_string(), "user2".to_string(), None).unwrap();
+
+        let users = list_channel_users(&state, "telegram".to_string()).unwrap();
+        assert_eq!(users.len(), 2);
+        // user2 (3 msgs) should be first
+        assert_eq!(users[0].user_id, "user2");
+        assert_eq!(users[0].total_messages, 3);
+        assert_eq!(users[1].user_id, "user1");
+        assert_eq!(users[1].total_messages, 1);
+    }
+
+    #[test]
+    fn list_channel_users_rejects_invalid_channel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+        assert!(list_channel_users(&state, "../escape".to_string()).is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // set_user_quota
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn set_user_quota_overrides_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+        set_user_quota(&state, "telegram".to_string(), "user1".to_string(), Some(5)).unwrap();
+
+        let check = check_quota(&state, "telegram".to_string(), "user1".to_string()).unwrap();
+        assert_eq!(check.limit, 5);
+    }
+
+    #[test]
+    fn set_user_quota_none_reverts_to_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        record_usage(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+        set_user_quota(&state, "telegram".to_string(), "user1".to_string(), Some(5)).unwrap();
+        set_user_quota(&state, "telegram".to_string(), "user1".to_string(), None).unwrap();
+
+        let check = check_quota(&state, "telegram".to_string(), "user1".to_string()).unwrap();
+        assert_eq!(check.limit, 100); // default
+    }
+
+    #[test]
+    fn set_user_quota_fails_for_missing_user() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+        let result = set_user_quota(&state, "telegram".to_string(), "nobody".to_string(), Some(10));
+        assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // set_default_quota
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn set_default_quota_writes_to_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        // Create minimal config
+        fs::write(tmp.path().join("openclaw.json"), "{}").unwrap();
+
+        set_default_quota(&state, 42).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("openclaw.json")).unwrap();
+        let config: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(config["settings"]["quotas"]["defaultDaily"], 42);
+    }
+
+    #[test]
+    fn set_default_quota_preserves_existing_settings() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        let config = serde_json::json!({
+            "settings": {
+                "gateway": { "port": 18790 },
+                "quotas": { "otherField": true }
+            }
+        });
+        fs::write(
+            tmp.path().join("openclaw.json"),
+            serde_json::to_string(&config).unwrap(),
+        ).unwrap();
+
+        set_default_quota(&state, 200).unwrap();
+
+        let content = fs::read_to_string(tmp.path().join("openclaw.json")).unwrap();
+        let result: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(result["settings"]["gateway"]["port"], 18790);
+        assert_eq!(result["settings"]["quotas"]["otherField"], true);
+        assert_eq!(result["settings"]["quotas"]["defaultDaily"], 200);
+    }
+
+    #[test]
+    fn set_default_quota_creates_backup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+
+        fs::write(tmp.path().join("openclaw.json"), r#"{"original": true}"#).unwrap();
+        set_default_quota(&state, 50).unwrap();
+
+        let backup = fs::read_to_string(tmp.path().join("openclaw.json.bak")).unwrap();
+        assert!(backup.contains("original"));
+    }
+
+    #[test]
+    fn set_default_quota_fails_without_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_test_state(tmp.path());
+        let result = set_default_quota(&state, 50);
+        assert!(result.is_err());
+    }
 }

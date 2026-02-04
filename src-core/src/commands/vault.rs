@@ -100,6 +100,9 @@ pub(crate) fn decrypt_data(key: &[u8; 32], blob: &EncryptedBlob) -> Result<Vec<u
         .map_err(|e| format!("Cipher init failed: {}", e))?;
     let nonce_bytes = hex::decode(&blob.nonce)
         .map_err(|e| format!("Invalid nonce hex: {}", e))?;
+    if nonce_bytes.len() != 12 {
+        return Err(format!("Invalid nonce length: {} (expected 12)", nonce_bytes.len()));
+    }
     let ciphertext = hex::decode(&blob.ciphertext)
         .map_err(|e| format!("Invalid ciphertext hex: {}", e))?;
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -608,5 +611,531 @@ mod tests {
         write_secrets(vault_dir, &key, &secrets).unwrap();
         let result = read_secrets(vault_dir, &wrong_key);
         assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // hex edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn hex_decode_empty_string() {
+        let result = hex::decode("").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn hex_decode_odd_length_fails() {
+        let result = hex::decode("abc");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Odd-length"));
+    }
+
+    #[test]
+    fn hex_decode_invalid_chars_fails() {
+        let result = hex::decode("zzzz");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid hex"));
+    }
+
+    #[test]
+    fn hex_encode_empty_slice() {
+        assert_eq!(hex::encode(&[] as &[u8]), "");
+    }
+
+    // -----------------------------------------------------------------------
+    // encrypt/decrypt edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn encrypt_decrypt_empty_data() {
+        let key = [42u8; 32];
+        let blob = encrypt_data(&key, b"").unwrap();
+        let decrypted = decrypt_data(&key, &blob).unwrap();
+        assert!(decrypted.is_empty());
+    }
+
+    #[test]
+    fn encrypt_decrypt_large_data() {
+        let key = [42u8; 32];
+        let data = vec![0xABu8; 1_000_000]; // 1 MB
+        let blob = encrypt_data(&key, &data).unwrap();
+        let decrypted = decrypt_data(&key, &blob).unwrap();
+        assert_eq!(decrypted, data);
+    }
+
+    #[test]
+    fn decrypt_corrupt_nonce_fails() {
+        let key = [42u8; 32];
+        let blob = EncryptedBlob {
+            nonce: "not_valid_hex!".to_string(),
+            ciphertext: "aabb".to_string(),
+        };
+        assert!(decrypt_data(&key, &blob).is_err());
+    }
+
+    #[test]
+    fn decrypt_corrupt_ciphertext_fails() {
+        let key = [42u8; 32];
+        let blob = encrypt_data(&key, b"test").unwrap();
+        let corrupt = EncryptedBlob {
+            nonce: blob.nonce,
+            ciphertext: "00".repeat(blob.ciphertext.len() / 2),
+        };
+        assert!(decrypt_data(&key, &corrupt).is_err());
+    }
+
+    #[test]
+    fn decrypt_wrong_nonce_length_fails() {
+        let key = [42u8; 32];
+        let blob = EncryptedBlob {
+            nonce: "aabbccdd".to_string(), // 4 bytes, not 12
+            ciphertext: "aabb".to_string(),
+        };
+        let result = decrypt_data(&key, &blob);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid nonce length"));
+    }
+
+    #[test]
+    fn decrypt_wrong_length_ciphertext_fails() {
+        let key = [42u8; 32];
+        // Valid 12-byte nonce (24 hex chars) but empty ciphertext
+        let blob = EncryptedBlob {
+            nonce: "000000000000000000000000".to_string(),
+            ciphertext: "".to_string(),
+        };
+        assert!(decrypt_data(&key, &blob).is_err());
+    }
+
+    #[test]
+    fn encrypt_produces_different_nonces() {
+        let key = [42u8; 32];
+        let blob1 = encrypt_data(&key, b"same data").unwrap();
+        let blob2 = encrypt_data(&key, b"same data").unwrap();
+        // Random nonces should differ
+        assert_ne!(blob1.nonce, blob2.nonce);
+        // And ciphertexts should differ due to different nonces
+        assert_ne!(blob1.ciphertext, blob2.ciphertext);
+    }
+
+    // -----------------------------------------------------------------------
+    // derive_encryption_key edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn derive_key_different_salts() {
+        let salt1 = [1u8; 32];
+        let salt2 = [2u8; 32];
+        let key1 = derive_encryption_key("same_password", &salt1).unwrap();
+        let key2 = derive_encryption_key("same_password", &salt2).unwrap();
+        assert_ne!(key1, key2);
+    }
+
+    #[test]
+    fn derive_key_empty_password() {
+        let salt = [1u8; 32];
+        // Empty password should still work (Argon2 accepts it)
+        let key = derive_encryption_key("", &salt).unwrap();
+        assert_ne!(key, [0u8; 32]); // should produce non-zero key
+    }
+
+    // -----------------------------------------------------------------------
+    // rate limiting boundary cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rate_limiting_at_boundary() {
+        // Exactly at MAX_FREE_ATTEMPTS (3) should start backoff
+        assert_eq!(required_delay_ms(MAX_FREE_ATTEMPTS), 2000);
+        // One below should be free
+        assert_eq!(required_delay_ms(MAX_FREE_ATTEMPTS - 1), 0);
+    }
+
+    #[test]
+    fn rate_limiting_very_large_attempts() {
+        // Should not overflow, stays capped at MAX_BACKOFF_MS
+        assert_eq!(required_delay_ms(u32::MAX), MAX_BACKOFF_MS);
+        assert_eq!(required_delay_ms(1000), MAX_BACKOFF_MS);
+    }
+
+    // -----------------------------------------------------------------------
+    // write_secrets edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn write_secrets_empty_map() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault_dir = tmp.path().to_str().unwrap();
+        let key = [42u8; 32];
+        let secrets = HashMap::new();
+
+        write_secrets(vault_dir, &key, &secrets).unwrap();
+        let loaded = read_secrets(vault_dir, &key).unwrap();
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn write_secrets_overwrites_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault_dir = tmp.path().to_str().unwrap();
+        let key = [42u8; 32];
+
+        let mut secrets1 = HashMap::new();
+        secrets1.insert("A".to_string(), "1".to_string());
+        write_secrets(vault_dir, &key, &secrets1).unwrap();
+
+        let mut secrets2 = HashMap::new();
+        secrets2.insert("B".to_string(), "2".to_string());
+        write_secrets(vault_dir, &key, &secrets2).unwrap();
+
+        let loaded = read_secrets(vault_dir, &key).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded["B"], "2");
+        assert!(!loaded.contains_key("A"));
+    }
+
+    #[test]
+    fn read_secrets_corrupt_json_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("vault_secrets.enc");
+        std::fs::write(&path, "not json at all").unwrap();
+        let key = [42u8; 32];
+        let result = read_secrets(tmp.path().to_str().unwrap(), &key);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Corrupt"));
+    }
+
+    // -----------------------------------------------------------------------
+    // vault_unlock / vault_lock / vault_store / vault_read / vault_remove
+    // Full integration tests with real crypto
+    // -----------------------------------------------------------------------
+
+    fn make_vault_state(tmp: &std::path::Path) -> AppState {
+        let vault_dir = tmp.join("vault");
+        let _ = std::fs::create_dir_all(&vault_dir);
+        let audit_path = tmp.join("audit.log");
+        let _ = std::fs::write(&audit_path, "");
+        AppState {
+            openclaw_dir: tmp.to_str().unwrap().to_string(),
+            vault_dir: vault_dir.to_str().unwrap().to_string(),
+            audit_log_path: audit_path.to_str().unwrap().to_string(),
+            vault: std::sync::Mutex::new(crate::state::VaultRuntime::default()),
+        }
+    }
+
+    #[test]
+    fn vault_unlock_creates_new_vault() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        let result = vault_unlock(&state, "master123".to_string()).unwrap();
+        assert!(result.success);
+        assert_eq!(result.retry_after_ms, 0);
+
+        // vault.lock should exist
+        let lock_path = tmp.path().join("vault/vault.lock");
+        assert!(lock_path.exists());
+
+        // Lock file should be valid JSON with version 2
+        let content = std::fs::read_to_string(&lock_path).unwrap();
+        let lock: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(lock["version"], 2);
+        assert!(lock["hash"].as_str().unwrap().starts_with("$argon2"));
+    }
+
+    #[test]
+    fn vault_unlock_then_lock_clears_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        vault_unlock(&state, "master123".to_string()).unwrap();
+        // Key should be set
+        {
+            let vault = state.vault.lock().unwrap();
+            assert!(vault.encryption_key.is_some());
+        }
+
+        vault_lock(&state).unwrap();
+        // Key should be cleared
+        {
+            let vault = state.vault.lock().unwrap();
+            assert!(vault.encryption_key.is_none());
+        }
+    }
+
+    #[test]
+    fn vault_unlock_wrong_password_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        // Create vault
+        vault_unlock(&state, "correct".to_string()).unwrap();
+        vault_lock(&state).unwrap();
+
+        // Try wrong password
+        let result = vault_unlock(&state, "wrong".to_string()).unwrap();
+        assert!(!result.success);
+
+        // Failed attempts should increment
+        let vault = state.vault.lock().unwrap();
+        assert_eq!(vault.failed_attempts, 1);
+    }
+
+    #[test]
+    fn vault_unlock_correct_password_resets_failures() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        // Create vault
+        vault_unlock(&state, "correct".to_string()).unwrap();
+        vault_lock(&state).unwrap();
+
+        // Fail once
+        vault_unlock(&state, "wrong".to_string()).unwrap();
+
+        // Succeed
+        let result = vault_unlock(&state, "correct".to_string()).unwrap();
+        assert!(result.success);
+
+        let vault = state.vault.lock().unwrap();
+        assert_eq!(vault.failed_attempts, 0);
+    }
+
+    #[test]
+    fn vault_store_and_read_secret() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        vault_unlock(&state, "password".to_string()).unwrap();
+
+        vault_store_secret(&state, "API_KEY".to_string(), "sk-test-123".to_string()).unwrap();
+
+        let value = vault_read_secret(&state, "API_KEY".to_string()).unwrap();
+        assert_eq!(value, Some("sk-test-123".to_string()));
+
+        // Non-existent key
+        let missing = vault_read_secret(&state, "NOPE".to_string()).unwrap();
+        assert_eq!(missing, None);
+    }
+
+    #[test]
+    fn vault_store_read_requires_unlock() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        // Without unlocking
+        let err = vault_store_secret(&state, "K".to_string(), "V".to_string());
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("locked"));
+
+        let err = vault_read_secret(&state, "K".to_string());
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("locked"));
+    }
+
+    #[test]
+    fn vault_remove_secret() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        vault_unlock(&state, "password".to_string()).unwrap();
+
+        vault_store_secret(&state, "DELETE_ME".to_string(), "val".to_string()).unwrap();
+        vault_store_secret(&state, "KEEP_ME".to_string(), "val2".to_string()).unwrap();
+
+        vault_remove(&state, "DELETE_ME".to_string()).unwrap();
+
+        let deleted = vault_read_secret(&state, "DELETE_ME".to_string()).unwrap();
+        assert_eq!(deleted, None);
+
+        let kept = vault_read_secret(&state, "KEEP_ME".to_string()).unwrap();
+        assert_eq!(kept, Some("val2".to_string()));
+    }
+
+    #[test]
+    fn vault_store_meta_and_list() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        vault_store_meta(&state, VaultEntry {
+            key: "api-key".to_string(),
+            provider: "openai".to_string(),
+            created_at: "2024-01-01".to_string(),
+            last_rotated: None,
+        }).unwrap();
+
+        vault_store_meta(&state, VaultEntry {
+            key: "token".to_string(),
+            provider: "anthropic".to_string(),
+            created_at: "2024-01-02".to_string(),
+            last_rotated: Some("2024-06-01".to_string()),
+        }).unwrap();
+
+        let entries = vault_list(&state).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].key, "api-key");
+        assert_eq!(entries[1].provider, "anthropic");
+    }
+
+    #[test]
+    fn vault_store_meta_updates_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        vault_store_meta(&state, VaultEntry {
+            key: "api-key".to_string(),
+            provider: "openai".to_string(),
+            created_at: "2024-01-01".to_string(),
+            last_rotated: None,
+        }).unwrap();
+
+        // Update same key
+        vault_store_meta(&state, VaultEntry {
+            key: "api-key".to_string(),
+            provider: "anthropic".to_string(),
+            created_at: "2024-01-01".to_string(),
+            last_rotated: Some("2024-06-01".to_string()),
+        }).unwrap();
+
+        let entries = vault_list(&state).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].provider, "anthropic");
+    }
+
+    #[test]
+    fn vault_list_returns_empty_when_no_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+        let entries = vault_list(&state).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn vault_exists_reflects_lock_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        assert!(!vault_exists(&state));
+
+        vault_unlock(&state, "pw".to_string()).unwrap();
+        assert!(vault_exists(&state));
+    }
+
+    #[test]
+    fn vault_secrets_persist_across_lock_unlock() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        vault_unlock(&state, "password".to_string()).unwrap();
+        vault_store_secret(&state, "KEY".to_string(), "persistent_value".to_string()).unwrap();
+        vault_lock(&state).unwrap();
+
+        // Re-unlock with same password
+        vault_unlock(&state, "password".to_string()).unwrap();
+        let val = vault_read_secret(&state, "KEY".to_string()).unwrap();
+        assert_eq!(val, Some("persistent_value".to_string()));
+    }
+
+    #[test]
+    fn vault_migrate_plaintext_secrets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        // Place a plaintext secrets file
+        let plaintext_path = tmp.path().join("vault/vault_secrets.json");
+        std::fs::write(&plaintext_path, r#"{"LEGACY_KEY": "legacy_value"}"#).unwrap();
+
+        vault_unlock(&state, "password".to_string()).unwrap();
+
+        // Plaintext file should be deleted after migration
+        assert!(!plaintext_path.exists());
+
+        // Secret should be readable from encrypted store
+        let val = vault_read_secret(&state, "LEGACY_KEY".to_string()).unwrap();
+        assert_eq!(val, Some("legacy_value".to_string()));
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn vault_unlock_upgrades_legacy_hash() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        // Create a legacy vault.lock with SHA-256 hash
+        use sha2::{Sha256, Digest};
+        let salt = b"openclaw-vault-lock-2025";
+        let mut hasher = Sha256::new();
+        hasher.update(salt);
+        hasher.update(b"legacy_password");
+        let result = hasher.finalize();
+        let hash: String = result.iter().map(|b| format!("{:02x}", b)).collect();
+
+        let lock_path = tmp.path().join("vault/vault.lock");
+        std::fs::write(&lock_path, &hash).unwrap();
+
+        // Unlock should work with legacy password
+        let result = vault_unlock(&state, "legacy_password".to_string()).unwrap();
+        assert!(result.success);
+
+        // Lock file should now be upgraded to JSON format
+        let content = std::fs::read_to_string(&lock_path).unwrap();
+        let lock: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(lock["version"], 2);
+        assert!(lock["hash"].as_str().unwrap().starts_with("$argon2"));
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn vault_unlock_legacy_wrong_password_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        use sha2::{Sha256, Digest};
+        let salt = b"openclaw-vault-lock-2025";
+        let mut hasher = Sha256::new();
+        hasher.update(salt);
+        hasher.update(b"correct_pw");
+        let result = hasher.finalize();
+        let hash: String = result.iter().map(|b| format!("{:02x}", b)).collect();
+
+        let lock_path = tmp.path().join("vault/vault.lock");
+        std::fs::write(&lock_path, &hash).unwrap();
+
+        let result = vault_unlock(&state, "wrong_pw".to_string()).unwrap();
+        assert!(!result.success);
+    }
+
+    #[test]
+    fn vault_remove_from_meta_and_secrets() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+
+        vault_unlock(&state, "pw".to_string()).unwrap();
+
+        // Store both meta and secret
+        vault_store_meta(&state, VaultEntry {
+            key: "api-key".to_string(),
+            provider: "openai".to_string(),
+            created_at: "2024-01-01".to_string(),
+            last_rotated: None,
+        }).unwrap();
+        vault_store_secret(&state, "api-key".to_string(), "sk-123".to_string()).unwrap();
+
+        vault_remove(&state, "api-key".to_string()).unwrap();
+
+        // Both meta and secret should be gone
+        let entries = vault_list(&state).unwrap();
+        assert!(entries.is_empty());
+        let val = vault_read_secret(&state, "api-key".to_string()).unwrap();
+        assert_eq!(val, None);
+    }
+
+    #[test]
+    fn vault_remove_requires_unlock() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_vault_state(tmp.path());
+        let err = vault_remove(&state, "key".to_string());
+        assert!(err.is_err());
+        assert!(err.unwrap_err().contains("locked"));
     }
 }

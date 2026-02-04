@@ -103,3 +103,121 @@ pub fn approve_pairing_request(
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(stdout.trim().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // We can't test the Docker-dependent code paths without Docker running,
+    // but we CAN test all input validation before Docker is reached.
+
+    fn make_state(tmp: &std::path::Path) -> AppState {
+        let audit = tmp.join("audit.log");
+        let _ = std::fs::write(&audit, "");
+        AppState {
+            openclaw_dir: tmp.to_str().unwrap().to_string(),
+            vault_dir: String::new(),
+            audit_log_path: audit.to_str().unwrap().to_string(),
+            vault: std::sync::Mutex::new(crate::state::VaultRuntime::default()),
+        }
+    }
+
+    #[test]
+    fn list_pairing_rejects_empty_channel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let result = list_pairing_requests(&state, "".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid channel"));
+    }
+
+    #[test]
+    fn list_pairing_rejects_special_chars_in_channel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let result = list_pairing_requests(&state, "../etc/passwd".to_string());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn list_pairing_normalizes_channel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        // Valid channel with spaces/uppercase — should pass validation
+        // but fail at Docker (which we can't test here)
+        // Just verify it doesn't reject valid-looking names
+        let result = list_pairing_requests(&state, " Telegram ".to_string());
+        // Will fail at validate_compose_dir (no docker-compose.yml in temp dir)
+        assert!(result.is_err());
+        // But the error should NOT be "Invalid channel"
+        assert!(!result.unwrap_err().contains("Invalid channel"));
+    }
+
+    #[test]
+    fn approve_pairing_rejects_empty_channel() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let result = approve_pairing_request(&state, "".to_string(), "ABC".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid channel"));
+    }
+
+    #[test]
+    fn approve_pairing_rejects_empty_code() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let result = approve_pairing_request(&state, "telegram".to_string(), "".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid pairing code"));
+    }
+
+    #[test]
+    fn approve_pairing_rejects_too_long_code() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let long_code = "A".repeat(21);
+        let result = approve_pairing_request(&state, "telegram".to_string(), long_code);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid pairing code"));
+    }
+
+    #[test]
+    fn approve_pairing_rejects_special_chars_in_code() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let result = approve_pairing_request(&state, "telegram".to_string(), "AB!@#".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid pairing code"));
+    }
+
+    #[test]
+    fn approve_pairing_normalizes_code_to_uppercase() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        // Valid code "abc" should pass validation (gets uppercased to "ABC")
+        // Will fail at Docker step, not validation
+        let result = approve_pairing_request(&state, "telegram".to_string(), "abc123".to_string());
+        assert!(result.is_err());
+        assert!(!result.unwrap_err().contains("Invalid pairing code"));
+    }
+
+    #[test]
+    fn approve_pairing_rejects_channel_with_spaces() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let result = approve_pairing_request(&state, "my channel".to_string(), "ABC".to_string());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid channel"));
+    }
+
+    #[test]
+    fn list_pairing_allows_hyphens_underscores() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        // Hyphens and underscores should be valid
+        let result = list_pairing_requests(&state, "my-channel_1".to_string());
+        // Should fail at Docker, not validation
+        assert!(result.is_err());
+        assert!(!result.unwrap_err().contains("Invalid channel"));
+    }
+}

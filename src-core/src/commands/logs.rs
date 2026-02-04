@@ -89,7 +89,7 @@ pub struct UsageStats {
 /// Get aggregated usage statistics from the audit log.
 pub fn get_usage_stats(state: &AppState) -> Result<UsageStats, String> {
     let content = fs::read_to_string(&state.audit_log_path).unwrap_or_default();
-    let lines: Vec<&str> = content.lines().collect();
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
 
     let mut actions_by_type: HashMap<String, usize> = HashMap::new();
     let mut actions_by_day: HashMap<String, usize> = HashMap::new();

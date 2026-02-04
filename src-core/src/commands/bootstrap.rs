@@ -409,21 +409,6 @@ fn write_env_secure(path: &std::path::Path, body: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Resolve the primary .env path for the openclaw dir, with legacy fallback.
-fn resolve_env_path(openclaw_dir: &str) -> std::path::PathBuf {
-    let gw = std::path::Path::new(openclaw_dir).join(".env");
-    if gw.is_file() {
-        return gw;
-    }
-    if let Some(home) = dirs::home_dir() {
-        let legacy = home.join("agent-mvp").join(".env");
-        if legacy.is_file() {
-            return legacy;
-        }
-    }
-    gw // default to openclaw dir even if it doesn't exist yet
-}
-
 // ---------------------------------------------------------------------------
 // Env sync: propagate vault secrets to gateway .env files
 // ---------------------------------------------------------------------------
@@ -513,11 +498,10 @@ pub fn sync_env_to_gateway(state: &AppState) -> Result<(), String> {
 /// to the backend .env that the gateway reads.
 pub fn sync_env_secret(state: &AppState, key: String, value: String) -> Result<(), String> {
     let openclaw_dir = std::path::Path::new(&state.openclaw_dir);
-    let gw_env_path = openclaw_dir.join(".env");
-    let source_path = resolve_env_path(&state.openclaw_dir);
+    let env_path = openclaw_dir.join(".env");
 
-    let mut env_map = if source_path.is_file() {
-        parse_env_file(&fs::read_to_string(&source_path).unwrap_or_default())
+    let mut env_map = if env_path.is_file() {
+        parse_env_file(&fs::read_to_string(&env_path).unwrap_or_default())
     } else {
         std::collections::BTreeMap::new()
     };
@@ -527,17 +511,7 @@ pub fn sync_env_secret(state: &AppState, key: String, value: String) -> Result<(
     let body = serialize_env_map(&env_map);
 
     let _ = fs::create_dir_all(openclaw_dir);
-    write_env_secure(&gw_env_path, &body)?;
-
-    // Also write to legacy root .env if the directory exists
-    if let Some(home) = dirs::home_dir() {
-        let root_env_path = home.join("agent-mvp").join(".env");
-        if root_env_path.parent().map_or(false, |p| p.is_dir()) {
-            let _ = fs::write(&root_env_path, &body);
-            #[cfg(unix)]
-            let _ = fs::set_permissions(&root_env_path, fs::Permissions::from_mode(0o600));
-        }
-    }
+    write_env_secure(&env_path, &body)?;
 
     audit::log_action(
         &state.audit_log_path,
@@ -551,7 +525,7 @@ pub fn sync_env_secret(state: &AppState, key: String, value: String) -> Result<(
 /// Read a single key from the gateway .env files.
 /// Used in web/bridge mode where there is no vault.
 pub fn read_env_secret(state: &AppState, key: String) -> Result<Option<String>, String> {
-    let path = resolve_env_path(&state.openclaw_dir);
+    let path = std::path::Path::new(&state.openclaw_dir).join(".env");
     if !path.is_file() {
         return Ok(None);
     }
@@ -832,8 +806,7 @@ mod tests {
         assert!(list_env_secrets(&state).unwrap().is_empty());
         assert_eq!(read_env_secret(&state, "_TEST_LC_KEY".to_string()).unwrap(), None);
 
-        // Store — sync_env_secret may merge with ~/agent-mvp/.env if it exists,
-        // so we track our own keys specifically rather than counting totals.
+        // Store
         sync_env_secret(&state, "_TEST_LC_KEY".to_string(), "sk-test-123".to_string()).unwrap();
         assert_eq!(
             read_env_secret(&state, "_TEST_LC_KEY".to_string()).unwrap(),
@@ -864,5 +837,176 @@ mod tests {
         // Remove second
         remove_env_secret(&state, "_TEST_LC_TOK".to_string()).unwrap();
         assert!(!list_env_secrets(&state).unwrap().contains(&"_TEST_LC_TOK".to_string()));
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_env_file edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_env_file_empty_input() {
+        let map = parse_env_file("");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_env_file_only_comments() {
+        let map = parse_env_file("# comment 1\n# comment 2\n");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_env_file_blank_lines() {
+        let map = parse_env_file("\n\n   \n\t\n");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_env_file_equals_in_value() {
+        let map = parse_env_file("KEY=val=ue=with=equals\n");
+        assert_eq!(map.get("KEY").unwrap(), "val=ue=with=equals");
+    }
+
+    #[test]
+    fn parse_env_file_no_value() {
+        // A line with just KEY= should produce empty value
+        let map = parse_env_file("EMPTY_VAL=\n");
+        assert_eq!(map.get("EMPTY_VAL").unwrap(), "");
+    }
+
+    #[test]
+    fn parse_env_file_no_equals() {
+        // A line without = should be skipped
+        let map = parse_env_file("JUSTAKEYWITHOUTEQ\n");
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_env_file_strips_whitespace_around_lines() {
+        let map = parse_env_file("  KEY=val  \n");
+        // The line gets trimmed, so "KEY=val" is parsed
+        assert_eq!(map.get("KEY").unwrap(), "val");
+    }
+
+    #[test]
+    fn parse_env_file_keys_sorted() {
+        let map = parse_env_file("ZEBRA=z\nAPPLE=a\nMIDDLE=m\n");
+        let keys: Vec<&String> = map.keys().collect();
+        // BTreeMap maintains sorted order
+        assert_eq!(keys, vec!["APPLE", "MIDDLE", "ZEBRA"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // serialize_env_map roundtrip
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn serialize_then_parse_roundtrip() {
+        let mut map = std::collections::BTreeMap::new();
+        map.insert("A_KEY".to_string(), "value1".to_string());
+        map.insert("B_KEY".to_string(), "value2".to_string());
+
+        let body = serialize_env_map(&map);
+        let parsed = parse_env_file(&body);
+
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed.get("A_KEY").unwrap(), "value1");
+        assert_eq!(parsed.get("B_KEY").unwrap(), "value2");
+    }
+
+    #[test]
+    fn serialize_env_map_includes_header() {
+        let map = std::collections::BTreeMap::new();
+        let body = serialize_env_map(&map);
+        assert!(body.starts_with("# Generated by Agentic Console"));
+    }
+
+    #[test]
+    fn serialize_env_map_empty() {
+        let map = std::collections::BTreeMap::new();
+        let body = serialize_env_map(&map);
+        // Only the header line
+        assert_eq!(body.lines().count(), 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // write_env_secure
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn write_env_secure_creates_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".env");
+        write_env_secure(&path, "KEY=val\n").unwrap();
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "KEY=val\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_env_secure_sets_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join(".env");
+        write_env_secure(&path, "SECRET=val\n").unwrap();
+
+        let meta = fs::metadata(&path).unwrap();
+        let mode = meta.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    // -----------------------------------------------------------------------
+    // sanitize_env_value edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn sanitize_env_value_empty_string() {
+        assert_eq!(sanitize_env_value(""), "");
+    }
+
+    #[test]
+    fn sanitize_env_value_preserves_normal_chars() {
+        let input = "sk-proj-abc123-DEF456_xyz.789";
+        assert_eq!(sanitize_env_value(input), input);
+    }
+
+    #[test]
+    fn sanitize_env_value_strips_all_dangerous() {
+        // newlines, carriage return, null byte, hash
+        let input = "good\nbad\r\0evil#comment";
+        let result = sanitize_env_value(input);
+        assert!(!result.contains('\n'));
+        assert!(!result.contains('\r'));
+        assert!(!result.contains('\0'));
+        assert!(!result.contains('#'));
+    }
+
+    // -----------------------------------------------------------------------
+    // random_hex edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn random_hex_zero_bytes() {
+        let h = random_hex(0);
+        assert!(h.is_empty());
+    }
+
+    #[test]
+    fn random_hex_uniqueness() {
+        let h1 = random_hex(16);
+        let h2 = random_hex(16);
+        assert_ne!(h1, h2);
+    }
+
+    // -----------------------------------------------------------------------
+    // provider_env_key edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn provider_env_key_unknown_providers() {
+        assert!(provider_env_key("").is_err());
+        assert!(provider_env_key("nonexistent").is_err());
+        assert!(provider_env_key("ANTHROPIC").is_err()); // case-sensitive
     }
 }

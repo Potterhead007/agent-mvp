@@ -340,4 +340,276 @@ mod tests {
             "v2|device123|client1|ui|operator|operator.admin|1234567890|token123|nonce456"
         );
     }
+
+    #[test]
+    fn test_build_payload_multiple_scopes() {
+        let payload = build_device_auth_payload(
+            "dev1", "cli", "api", "admin",
+            &["read".to_string(), "write".to_string(), "delete".to_string()],
+            999, "tok", None,
+        );
+        assert_eq!(payload, "v1|dev1|cli|api|admin|read,write,delete|999|tok");
+    }
+
+    #[test]
+    fn test_build_payload_empty_scopes() {
+        let payload = build_device_auth_payload(
+            "dev1", "cli", "api", "admin",
+            &[], 999, "tok", None,
+        );
+        assert_eq!(payload, "v1|dev1|cli|api|admin||999|tok");
+    }
+
+    #[test]
+    fn test_build_payload_empty_token() {
+        let payload = build_device_auth_payload(
+            "dev1", "cli", "api", "admin",
+            &["scope".to_string()], 999, "", None,
+        );
+        assert_eq!(payload, "v1|dev1|cli|api|admin|scope|999|");
+    }
+
+    // -----------------------------------------------------------------------
+    // uuid_v4
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn uuid_v4_correct_format() {
+        let id = uuid_v4();
+        // UUID v4 format: 8-4-4-4-12 hex chars
+        let parts: Vec<&str> = id.split('-').collect();
+        assert_eq!(parts.len(), 5);
+        assert_eq!(parts[0].len(), 8);
+        assert_eq!(parts[1].len(), 4);
+        assert_eq!(parts[2].len(), 4);
+        assert_eq!(parts[3].len(), 4);
+        assert_eq!(parts[4].len(), 12);
+        // All hex chars
+        assert!(id.replace('-', "").chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn uuid_v4_version_and_variant_bits() {
+        let id = uuid_v4();
+        let parts: Vec<&str> = id.split('-').collect();
+        // Version nibble (first char of 3rd group) should be '4'
+        assert!(parts[2].starts_with('4'));
+        // Variant nibble (first char of 4th group) should be 8, 9, a, or b
+        let variant_char = parts[3].chars().next().unwrap();
+        assert!(
+            variant_char == '8' || variant_char == '9'
+                || variant_char == 'a' || variant_char == 'b',
+            "variant nibble was '{}', expected 8/9/a/b",
+            variant_char
+        );
+    }
+
+    #[test]
+    fn uuid_v4_uniqueness() {
+        let id1 = uuid_v4();
+        let id2 = uuid_v4();
+        assert_ne!(id1, id2);
+    }
+
+    // -----------------------------------------------------------------------
+    // pem_to_der
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn pem_to_der_strips_headers() {
+        // Create a known PEM with base64 of [1,2,3,4]
+        let b64 = base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3, 4]);
+        let pem = format!("-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----", b64);
+        let der = pem_to_der(&pem).unwrap();
+        assert_eq!(der, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn pem_to_der_invalid_base64_fails() {
+        let pem = "-----BEGIN PRIVATE KEY-----\n!!not_base64!!\n-----END PRIVATE KEY-----";
+        assert!(pem_to_der(pem).is_err());
+    }
+
+    #[test]
+    fn pem_to_der_empty_body() {
+        let pem = "-----BEGIN PRIVATE KEY-----\n-----END PRIVATE KEY-----";
+        let der = pem_to_der(pem).unwrap();
+        assert!(der.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_ed25519_private_key and public_key_raw_base64url
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_ed25519_private_key_wrong_length_fails() {
+        // Create a PEM with wrong-length DER (not 48 bytes)
+        let fake_der = vec![0u8; 32]; // too short
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&fake_der);
+        let pem = format!("-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----", b64);
+        let result = parse_ed25519_private_key(&pem);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unexpected PKCS8 DER length"));
+    }
+
+    #[test]
+    fn public_key_raw_base64url_wrong_length_fails() {
+        let fake_der = vec![0u8; 32]; // need 44 bytes
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&fake_der);
+        let pem = format!("-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----", b64);
+        let result = public_key_raw_base64url(&pem);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unexpected SPKI DER length"));
+    }
+
+    // -----------------------------------------------------------------------
+    // generate_device_identity and sign_device_challenge integration
+    // -----------------------------------------------------------------------
+
+    fn make_device_state(tmp: &std::path::Path) -> crate::state::AppState {
+        let audit_path = tmp.join("audit.log");
+        let _ = std::fs::write(&audit_path, "");
+        crate::state::AppState {
+            openclaw_dir: tmp.to_str().unwrap().to_string(),
+            vault_dir: String::new(),
+            audit_log_path: audit_path.to_str().unwrap().to_string(),
+            vault: std::sync::Mutex::new(crate::state::VaultRuntime::default()),
+        }
+    }
+
+    #[test]
+    fn generate_device_identity_creates_keypair() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_device_state(tmp.path());
+
+        let device_id = generate_device_identity(&state).unwrap();
+        assert!(device_id.starts_with("openclaw-"));
+
+        // File should exist
+        let path = tmp.path().join("identity/device.json");
+        assert!(path.exists());
+
+        // File should be valid JSON with expected fields
+        let content = std::fs::read_to_string(&path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(json["version"], 1);
+        assert_eq!(json["deviceId"].as_str().unwrap(), device_id);
+        assert!(json["publicKeyPem"].as_str().unwrap().contains("BEGIN PUBLIC KEY"));
+        assert!(json["privateKeyPem"].as_str().unwrap().contains("BEGIN PRIVATE KEY"));
+    }
+
+    #[test]
+    fn generate_device_identity_returns_existing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_device_state(tmp.path());
+
+        let id1 = generate_device_identity(&state).unwrap();
+        let id2 = generate_device_identity(&state).unwrap();
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn sign_device_challenge_produces_valid_signature() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_device_state(tmp.path());
+
+        // Generate identity first
+        generate_device_identity(&state).unwrap();
+
+        let params = SignDeviceParams {
+            client_id: "test-client".to_string(),
+            client_mode: "ui".to_string(),
+            role: "operator".to_string(),
+            scopes: vec!["admin".to_string()],
+            token: Some("tok-123".to_string()),
+            nonce: Some("nonce-abc".to_string()),
+        };
+
+        let auth = sign_device_challenge(&state, params).unwrap();
+
+        assert!(auth.id.starts_with("openclaw-"));
+        assert!(!auth.public_key.is_empty());
+        assert!(!auth.signature.is_empty());
+        assert!(auth.signed_at > 0);
+        assert_eq!(auth.nonce, Some("nonce-abc".to_string()));
+
+        // Verify the signature is valid base64url
+        let sig_bytes = URL_SAFE_NO_PAD.decode(&auth.signature).unwrap();
+        assert_eq!(sig_bytes.len(), 64); // Ed25519 signature is 64 bytes
+
+        // Verify public key is valid base64url
+        let pk_bytes = URL_SAFE_NO_PAD.decode(&auth.public_key).unwrap();
+        assert_eq!(pk_bytes.len(), 32); // Ed25519 public key is 32 bytes
+    }
+
+    #[test]
+    fn sign_device_challenge_without_identity_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_device_state(tmp.path());
+
+        let params = SignDeviceParams {
+            client_id: "test".to_string(),
+            client_mode: "ui".to_string(),
+            role: "operator".to_string(),
+            scopes: vec![],
+            token: None,
+            nonce: None,
+        };
+
+        let result = sign_device_challenge(&state, params);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read"));
+    }
+
+    #[test]
+    fn sign_device_challenge_v1_no_nonce() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_device_state(tmp.path());
+        generate_device_identity(&state).unwrap();
+
+        let params = SignDeviceParams {
+            client_id: "cli".to_string(),
+            client_mode: "api".to_string(),
+            role: "viewer".to_string(),
+            scopes: vec!["read".to_string()],
+            token: None,
+            nonce: None,
+        };
+
+        let auth = sign_device_challenge(&state, params).unwrap();
+        assert_eq!(auth.nonce, None);
+    }
+
+    #[test]
+    fn generated_keypair_signs_and_verifies() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_device_state(tmp.path());
+        generate_device_identity(&state).unwrap();
+
+        // Read back the identity
+        let content = std::fs::read_to_string(
+            tmp.path().join("identity/device.json")
+        ).unwrap();
+        let identity: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        // Parse private key and sign something
+        let signing_key = parse_ed25519_private_key(
+            identity["privateKeyPem"].as_str().unwrap()
+        ).unwrap();
+
+        let message = b"test message";
+        let sig = signing_key.sign(message);
+
+        // Parse public key and verify
+        let pk_b64url = public_key_raw_base64url(
+            identity["publicKeyPem"].as_str().unwrap()
+        ).unwrap();
+        let pk_bytes = URL_SAFE_NO_PAD.decode(&pk_b64url).unwrap();
+        let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(
+            pk_bytes.as_slice().try_into().unwrap()
+        ).unwrap();
+
+        use ed25519_dalek::Verifier;
+        assert!(verifying_key.verify(message, &sig).is_ok());
+    }
 }
