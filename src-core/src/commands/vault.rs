@@ -3,6 +3,7 @@ use crate::security::audit;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -125,7 +126,7 @@ fn secrets_path(vault_dir: &str) -> String {
 
 fn read_secrets(vault_dir: &str, key: &[u8; 32]) -> Result<HashMap<String, String>, String> {
     let path = secrets_path(vault_dir);
-    match std::fs::read_to_string(&path) {
+    match fs::read_to_string(&path) {
         Ok(content) => {
             let blob: EncryptedBlob = serde_json::from_str(&content)
                 .map_err(|e| format!("Corrupt secrets file: {}", e))?;
@@ -157,7 +158,7 @@ fn get_encryption_key(state: &AppState) -> Result<[u8; 32], String> {
 
 pub fn vault_list(state: &AppState) -> Result<Vec<VaultEntry>, String> {
     let vault_meta_path = format!("{}/vault_meta.json", state.vault_dir);
-    match std::fs::read_to_string(&vault_meta_path) {
+    match fs::read_to_string(&vault_meta_path) {
         Ok(content) => {
             let entries: Vec<VaultEntry> =
                 serde_json::from_str(&content).unwrap_or_default();
@@ -252,7 +253,7 @@ pub fn vault_unlock(
     }
 
     // Existing vault — read lock file
-    let lock_content = std::fs::read_to_string(&lock_path)
+    let lock_content = fs::read_to_string(&lock_path)
         .map_err(|e| format!("Failed to read vault lock: {}", e))?;
 
     // Support both new (JSON) and legacy (hex hash) formats
@@ -348,7 +349,7 @@ pub fn vault_store_meta(
     entry: VaultEntry,
 ) -> Result<(), String> {
     let vault_meta_path = format!("{}/vault_meta.json", state.vault_dir);
-    let mut entries: Vec<VaultEntry> = match std::fs::read_to_string(&vault_meta_path) {
+    let mut entries: Vec<VaultEntry> = match fs::read_to_string(&vault_meta_path) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
         Err(_) => vec![],
     };
@@ -376,7 +377,7 @@ pub fn vault_store_meta(
 pub fn vault_remove(state: &AppState, key: String) -> Result<(), String> {
     // Remove from metadata
     let vault_meta_path = format!("{}/vault_meta.json", state.vault_dir);
-    let mut entries: Vec<VaultEntry> = match std::fs::read_to_string(&vault_meta_path) {
+    let mut entries: Vec<VaultEntry> = match fs::read_to_string(&vault_meta_path) {
         Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
         Err(_) => vec![],
     };
@@ -402,11 +403,11 @@ pub fn vault_remove(state: &AppState, key: String) -> Result<(), String> {
 
 fn migrate_plaintext_secrets(state: &AppState, enc_key: &[u8; 32]) {
     let plaintext_path = format!("{}/vault_secrets.json", state.vault_dir);
-    if let Ok(content) = std::fs::read_to_string(&plaintext_path) {
+    if let Ok(content) = fs::read_to_string(&plaintext_path) {
         if let Ok(secrets) = serde_json::from_str::<HashMap<String, String>>(&content) {
             if !secrets.is_empty() {
                 if write_secrets(&state.vault_dir, enc_key, &secrets).is_ok() {
-                    let _ = std::fs::remove_file(&plaintext_path);
+                    let _ = fs::remove_file(&plaintext_path);
                     audit::log_action(
                         &state.audit_log_path,
                         "VAULT_MIGRATE",
@@ -414,7 +415,7 @@ fn migrate_plaintext_secrets(state: &AppState, enc_key: &[u8; 32]) {
                     );
                 }
             } else {
-                let _ = std::fs::remove_file(&plaintext_path);
+                let _ = fs::remove_file(&plaintext_path);
             }
         }
     }
@@ -741,7 +742,7 @@ mod tests {
     fn read_secrets_corrupt_json_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("vault_secrets.enc");
-        std::fs::write(&path, "not json at all").unwrap();
+        fs::write(&path, "not json at all").unwrap();
         let key = [42u8; 32];
         let result = read_secrets(tmp.path().to_str().unwrap(), &key);
         assert!(result.is_err());
@@ -750,9 +751,9 @@ mod tests {
 
     fn make_vault_state(tmp: &std::path::Path) -> AppState {
         let vault_dir = tmp.join("vault");
-        let _ = std::fs::create_dir_all(&vault_dir);
+        let _ = fs::create_dir_all(&vault_dir);
         let audit_path = tmp.join("audit.log");
-        let _ = std::fs::write(&audit_path, "");
+        let _ = fs::write(&audit_path, "");
         AppState {
             openclaw_dir: tmp.to_str().unwrap().to_string(),
             vault_dir: vault_dir.to_str().unwrap().to_string(),
@@ -775,7 +776,7 @@ mod tests {
         assert!(lock_path.exists());
 
         // Lock file should be valid JSON with version 2
-        let content = std::fs::read_to_string(&lock_path).unwrap();
+        let content = fs::read_to_string(&lock_path).unwrap();
         let lock: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert_eq!(lock["version"], 2);
         assert!(lock["hash"].as_str().unwrap().starts_with("$argon2"));
@@ -981,7 +982,7 @@ mod tests {
 
         // Place a plaintext secrets file
         let plaintext_path = tmp.path().join("vault/vault_secrets.json");
-        std::fs::write(&plaintext_path, r#"{"LEGACY_KEY": "legacy_value"}"#).unwrap();
+        fs::write(&plaintext_path, r#"{"LEGACY_KEY": "legacy_value"}"#).unwrap();
 
         vault_unlock(&state, "password".to_string()).unwrap();
 
@@ -1009,14 +1010,14 @@ mod tests {
         let hash: String = result.iter().map(|b| format!("{:02x}", b)).collect();
 
         let lock_path = tmp.path().join("vault/vault.lock");
-        std::fs::write(&lock_path, &hash).unwrap();
+        fs::write(&lock_path, &hash).unwrap();
 
         // Unlock should work with legacy password
         let result = vault_unlock(&state, "legacy_password".to_string()).unwrap();
         assert!(result.success);
 
         // Lock file should now be upgraded to JSON format
-        let content = std::fs::read_to_string(&lock_path).unwrap();
+        let content = fs::read_to_string(&lock_path).unwrap();
         let lock: serde_json::Value = serde_json::from_str(&content).unwrap();
         assert_eq!(lock["version"], 2);
         assert!(lock["hash"].as_str().unwrap().starts_with("$argon2"));
@@ -1037,7 +1038,7 @@ mod tests {
         let hash: String = result.iter().map(|b| format!("{:02x}", b)).collect();
 
         let lock_path = tmp.path().join("vault/vault.lock");
-        std::fs::write(&lock_path, &hash).unwrap();
+        fs::write(&lock_path, &hash).unwrap();
 
         let result = vault_unlock(&state, "wrong_pw".to_string()).unwrap();
         assert!(!result.success);

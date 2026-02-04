@@ -2,6 +2,7 @@ use crate::fs_utils::atomic_write;
 use crate::security::audit;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
@@ -43,7 +44,7 @@ pub fn list_gateway_plugins(state: &AppState) -> Result<Vec<PluginInfo>, String>
         .unwrap_or_else(|| serde_json::json!({}));
 
     // Build a combined list from allow list + entries
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = HashSet::new();
 
     for plugin_id in &allow_list {
         seen.insert(plugin_id.clone());

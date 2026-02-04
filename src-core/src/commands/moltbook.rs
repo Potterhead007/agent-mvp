@@ -70,7 +70,7 @@ pub fn save_skill_md(
     let path = format!("{}/agents/{}/skill.md", state.openclaw_dir, agent_id);
 
     // Ensure parent directory exists
-    if let Some(parent) = std::path::Path::new(&path).parent() {
+    if let Some(parent) = Path::new(&path).parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 

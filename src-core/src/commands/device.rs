@@ -3,6 +3,7 @@ use base64::Engine;
 use ed25519_dalek::{SigningKey, Signer};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::fs_utils::atomic_write_secure;
 use crate::state::AppState;
@@ -95,7 +96,7 @@ pub fn sign_device_challenge(
     state: &AppState,
     params: SignDeviceParams,
 ) -> Result<DeviceAuth, String> {
-    let identity_path = std::path::PathBuf::from(&state.openclaw_dir)
+    let identity_path = PathBuf::from(&state.openclaw_dir)
         .join("identity")
         .join("device.json");
 
@@ -147,7 +148,7 @@ pub fn sign_device_challenge(
     })
 }
 pub fn generate_device_identity(state: &AppState) -> Result<String, String> {
-    let identity_dir = std::path::PathBuf::from(&state.openclaw_dir)
+    let identity_dir = PathBuf::from(&state.openclaw_dir)
         .join("identity");
     let identity_path = identity_dir.join("device.json");
 
@@ -217,7 +218,7 @@ pub fn generate_device_identity(state: &AppState) -> Result<String, String> {
 
     let content = serde_json::to_string_pretty(&identity)
         .map_err(|e| format!("Failed to serialize identity: {}", e))?;
-    atomic_write_secure(std::path::Path::new(&identity_path), &content)?;
+    atomic_write_secure(Path::new(&identity_path), &content)?;
 
     crate::security::audit::log_action(
         &state.audit_log_path,

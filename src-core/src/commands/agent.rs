@@ -64,7 +64,7 @@ pub fn write_agent_file(
 ) -> Result<(), String> {
     let safe_path = sanitize::sanitize_path(&state.openclaw_dir, &relative_path)
         .ok_or("Invalid path: access denied")?;
-    if let Some(parent) = std::path::Path::new(&safe_path).parent() {
+    if let Some(parent) = Path::new(&safe_path).parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {}", e))?;
     }
     fs::write(&safe_path, &content).map_err(|e| format!("Failed to write file: {}", e))?;
@@ -87,7 +87,7 @@ pub struct FileNode {
 }
 
 pub fn list_workspace_tree(state: &AppState) -> Result<Vec<FileNode>, String> {
-    fn build_tree(dir: &std::path::Path, base: &std::path::Path) -> Vec<FileNode> {
+    fn build_tree(dir: &Path, base: &Path) -> Vec<FileNode> {
         let mut nodes = Vec::new();
         let Ok(entries) = fs::read_dir(dir) else {
             return nodes;
@@ -130,7 +130,7 @@ pub fn list_workspace_tree(state: &AppState) -> Result<Vec<FileNode>, String> {
         nodes
     }
 
-    let base = std::path::Path::new(&state.openclaw_dir);
+    let base = Path::new(&state.openclaw_dir);
     if !base.exists() {
         return Ok(vec![]);
     }
@@ -142,9 +142,9 @@ pub fn create_workspace_file(
     relative_path: String,
     content: String,
 ) -> Result<(), String> {
-    let full_path = std::path::Path::new(&state.openclaw_dir).join(&relative_path);
+    let full_path = Path::new(&state.openclaw_dir).join(&relative_path);
 
-    let canonical_base = std::path::Path::new(&state.openclaw_dir)
+    let canonical_base = Path::new(&state.openclaw_dir)
         .canonicalize()
         .map_err(|e| format!("Base path error: {}", e))?;
 
@@ -378,7 +378,7 @@ pub fn clear_agent_memory(
 ) -> Result<(), String> {
     sanitize::validate_id(&agent_id)?;
     let memory_dir = format!("{}/agents/{}/memory", state.openclaw_dir, agent_id);
-    if std::path::Path::new(&memory_dir).exists() {
+    if Path::new(&memory_dir).exists() {
         fs::remove_dir_all(&memory_dir)
             .map_err(|e| format!("Failed to clear memory: {}", e))?;
         fs::create_dir_all(&memory_dir)
@@ -404,11 +404,11 @@ pub fn archive_agent_memory(
     fs::create_dir_all(&archive_dir)
         .map_err(|e| format!("Failed to create archive dir: {}", e))?;
 
-    if std::path::Path::new(&memory_dir).exists() {
+    if Path::new(&memory_dir).exists() {
         let mut copied = 0usize;
         if let Ok(entries) = fs::read_dir(&memory_dir) {
             for entry in entries.flatten() {
-                let dest = std::path::Path::new(&archive_dir).join(entry.file_name());
+                let dest = Path::new(&archive_dir).join(entry.file_name());
                 fs::copy(entry.path(), dest)
                     .map_err(|e| format!("Failed to archive {}: {}", entry.file_name().to_string_lossy(), e))?;
                 copied += 1;
@@ -923,8 +923,8 @@ mod tests {
         let archive_path = archive_agent_memory(&state, "bot".to_string()).unwrap();
 
         // Archive should contain the files
-        assert!(std::path::Path::new(&archive_path).join("log1.txt").exists());
-        assert!(std::path::Path::new(&archive_path).join("log2.txt").exists());
+        assert!(Path::new(&archive_path).join("log1.txt").exists());
+        assert!(Path::new(&archive_path).join("log2.txt").exists());
         // Original memory should be cleared
         assert!(memory_dir.exists());
         assert!(fs::read_dir(&memory_dir).unwrap().next().is_none());

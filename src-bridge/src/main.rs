@@ -10,7 +10,9 @@ use axum::response::Html;
 use axum::routing::{get, post};
 use axum::Router;
 use routes::BridgeState;
+use std::fs;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::process;
 use std::sync::Arc;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
@@ -127,7 +129,7 @@ async fn main() {
         .or_else(|| std::env::var("BRIDGE_WEB_DIR").ok())
         .unwrap_or_else(|| "/home/bridge/web".to_string());
 
-    let web_dir_exists = std::path::Path::new(&web_dir).join("index.html").exists();
+    let web_dir_exists = Path::new(&web_dir).join("index.html").exists();
 
     // API routes (always available)
     let api_routes = Router::new()
@@ -142,7 +144,7 @@ async fn main() {
     // Static assets (JS, CSS) are served from /assets/ via ServeDir.
     // All other paths return index.html so the React client-side router handles them.
     let app = if web_dir_exists {
-        let index_html = std::fs::read_to_string(format!("{}/index.html", web_dir))
+        let index_html = fs::read_to_string(format!("{}/index.html", web_dir))
             .expect("Failed to read web console index.html");
         api_routes
             .nest_service("/assets", ServeDir::new(format!("{}/assets", web_dir)))

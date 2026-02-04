@@ -1,5 +1,7 @@
+use std::path::Path;
+
 pub fn sanitize_path(base: &str, requested: &str) -> Option<String> {
-    let base_path = std::path::Path::new(base).canonicalize().ok()?;
+    let base_path = Path::new(base).canonicalize().ok()?;
     let full_path = base_path.join(requested);
 
     if let Ok(canonical) = full_path.canonicalize() {

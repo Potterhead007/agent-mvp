@@ -81,7 +81,7 @@ pub fn remove_skill(
 ) -> Result<(), String> {
     sanitize::validate_id(&skill_id)?;
     let skill_dir = format!("{}/skills/{}", state.openclaw_dir, skill_id);
-    if std::path::Path::new(&skill_dir).exists() {
+    if Path::new(&skill_dir).exists() {
         fs::remove_dir_all(&skill_dir)
             .map_err(|e| format!("Failed to remove skill: {}", e))?;
     }
@@ -114,7 +114,7 @@ pub fn create_skill(
     let skill_dir = format!("{}/{}", skills_dir, id);
 
     // Check for duplicate
-    if std::path::Path::new(&skill_dir).exists() {
+    if Path::new(&skill_dir).exists() {
         return Err(format!("Skill with ID '{}' already exists", id));
     }
 
@@ -236,7 +236,7 @@ pub fn update_skill_file(
     let safe_path = sanitize::sanitize_path(&skills_base, &relative_path)
         .ok_or("Invalid path: access denied")?;
 
-    if let Some(parent) = std::path::Path::new(&safe_path).parent() {
+    if let Some(parent) = Path::new(&safe_path).parent() {
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directories: {}", e))?;
     }
 
