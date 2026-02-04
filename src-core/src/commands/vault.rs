@@ -1,8 +1,9 @@
-use crate::fs_utils::atomic_write;
+use crate::fs_utils::{atomic_write, atomic_write_secure};
 use crate::security::audit;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::Path;
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -142,7 +143,7 @@ fn write_secrets(vault_dir: &str, key: &[u8; 32], secrets: &HashMap<String, Stri
     let blob = encrypt_data(key, json.as_bytes())?;
     let content = serde_json::to_string(&blob)
         .map_err(|e| format!("Failed to serialize blob: {}", e))?;
-    atomic_write(std::path::Path::new(&secrets_path(vault_dir)), &content)
+    atomic_write_secure(Path::new(&secrets_path(vault_dir)), &content)
         .map_err(|e| format!("Failed to write secrets: {}", e))
 }
 
@@ -212,7 +213,7 @@ pub fn vault_unlock(
         }
     }
 
-    if !std::path::Path::new(&lock_path).exists() {
+    if !Path::new(&lock_path).exists() {
         // First time — create vault
         let password_hash = argon2::password_hash::PasswordHasher::hash_password(
             &Argon2::default(),
@@ -232,8 +233,7 @@ pub fn vault_unlock(
         };
         let content = serde_json::to_string_pretty(&lock)
             .map_err(|e| format!("Failed to serialize lock: {}", e))?;
-        std::fs::write(&lock_path, content)
-            .map_err(|e| format!("Failed to create vault lock: {}", e))?;
+        atomic_write_secure(Path::new(&lock_path), &content)?;
 
         // Derive encryption key and store in runtime
         let enc_key = derive_encryption_key(&password, &key_salt)?;
@@ -307,8 +307,7 @@ pub fn vault_unlock(
             };
             let content = serde_json::to_string_pretty(&lock)
                 .map_err(|e| format!("Failed to serialize lock: {}", e))?;
-            std::fs::write(&lock_path, content)
-                .map_err(|e| format!("Failed to upgrade vault lock: {}", e))?;
+            atomic_write_secure(Path::new(&lock_path), &content)?;
 
             let enc_key = derive_encryption_key(&password, &key_salt)?;
 
@@ -340,7 +339,7 @@ pub fn vault_lock(state: &AppState) -> Result<(), String> {
 
 pub fn vault_exists(state: &AppState) -> bool {
     let lock_path = format!("{}/vault.lock", state.vault_dir);
-    std::path::Path::new(&lock_path).exists()
+    Path::new(&lock_path).exists()
 }
 
 pub fn vault_store_meta(
@@ -362,7 +361,7 @@ pub fn vault_store_meta(
 
     let content = serde_json::to_string_pretty(&entries)
         .map_err(|e| format!("Failed to serialize: {}", e))?;
-    atomic_write(std::path::Path::new(&vault_meta_path), &content)
+    atomic_write(Path::new(&vault_meta_path), &content)
         .map_err(|e| format!("Failed to write vault meta: {}", e))?;
 
     audit::log_action(
@@ -383,7 +382,7 @@ pub fn vault_remove(state: &AppState, key: String) -> Result<(), String> {
     entries.retain(|e| e.key != key);
     let content = serde_json::to_string_pretty(&entries)
         .map_err(|e| format!("Failed to serialize: {}", e))?;
-    atomic_write(std::path::Path::new(&vault_meta_path), &content)
+    atomic_write(Path::new(&vault_meta_path), &content)
         .map_err(|e| format!("Failed to write vault meta: {}", e))?;
 
     // Remove from encrypted secrets
