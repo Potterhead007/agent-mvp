@@ -1,7 +1,9 @@
+use crate::fs_utils::atomic_write;
 use crate::security::{audit, sanitize};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,7 +74,8 @@ pub fn save_skill_md(
         fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
-    fs::write(&path, &content).map_err(|e| format!("Failed to write skill.md: {}", e))?;
+    atomic_write(Path::new(&path), &content)
+        .map_err(|e| format!("Failed to write skill.md: {}", e))?;
 
     audit::log_action(
         &state.audit_log_path,

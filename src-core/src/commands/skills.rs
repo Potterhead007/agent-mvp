@@ -1,7 +1,9 @@
+use crate::fs_utils::atomic_write;
 use crate::security::{audit, sanitize};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillInfo {
@@ -62,7 +64,7 @@ pub fn toggle_skill(
 
     let updated = serde_json::to_string_pretty(&val)
         .map_err(|e| format!("Failed to serialize: {}", e))?;
-    fs::write(&skill_json_path, updated)
+    atomic_write(Path::new(&skill_json_path), &updated)
         .map_err(|e| format!("Failed to write skill config: {}", e))?;
 
     audit::log_action(
@@ -147,7 +149,7 @@ pub fn create_skill(
     });
     let skill_json = serde_json::to_string_pretty(&skill_meta)
         .map_err(|e| format!("Failed to serialize skill.json: {}", e))?;
-    fs::write(format!("{}/skill.json", skill_dir), &skill_json)
+    atomic_write(Path::new(&format!("{}/skill.json", skill_dir)), &skill_json)
         .map_err(|e| format!("Failed to write skill.json: {}", e))?;
 
     // Write individual tool definition files
@@ -159,7 +161,7 @@ pub fn create_skill(
                 .unwrap_or("unnamed");
             let tool_json = serde_json::to_string_pretty(tool)
                 .map_err(|e| format!("Failed to serialize tool {}: {}", tool_name, e))?;
-            fs::write(format!("{}/tools/{}.json", skill_dir, tool_name), &tool_json)
+            atomic_write(Path::new(&format!("{}/tools/{}.json", skill_dir, tool_name)), &tool_json)
                 .map_err(|e| format!("Failed to write tool {}: {}", tool_name, e))?;
         }
     }

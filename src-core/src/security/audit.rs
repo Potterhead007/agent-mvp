@@ -10,14 +10,12 @@ fn maybe_rotate(path: &str) {
     let p = Path::new(path);
     if let Ok(meta) = fs::metadata(p) {
         if meta.len() >= MAX_LOG_SIZE {
-            // Shift existing rotated files: .2 → .3, .1 → .2
             for i in (1..MAX_ROTATED_COPIES).rev() {
                 let from = format!("{}.{}", path, i);
                 let to = format!("{}.{}", path, i + 1);
                 let _ = fs::rename(&from, &to);
             }
-            let rotated = format!("{}.1", path);
-            let _ = fs::rename(p, &rotated);
+            let _ = fs::rename(p, format!("{}.1", path));
         }
     }
 }
@@ -28,12 +26,19 @@ pub fn log_action(audit_path: &str, action: &str, details: &str) {
     let timestamp = Utc::now().to_rfc3339();
     let entry = format!("[{}] {} | {}\n", timestamp, action, details);
 
-    if let Ok(mut file) = OpenOptions::new()
+    match OpenOptions::new()
         .create(true)
         .append(true)
         .open(audit_path)
     {
-        let _ = file.write_all(entry.as_bytes());
+        Ok(mut file) => {
+            if let Err(e) = file.write_all(entry.as_bytes()) {
+                eprintln!("audit: failed to write to {}: {}", audit_path, e);
+            }
+        }
+        Err(e) => {
+            eprintln!("audit: failed to open {}: {}", audit_path, e);
+        }
     }
 }
 
