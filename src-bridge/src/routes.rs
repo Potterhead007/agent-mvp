@@ -633,6 +633,25 @@ fn dispatch_command(
             serde_json::to_value(check).map_err(|e| e.to_string())
         }
 
+        // Cron
+        "cron_list" => commands::cron::cron_list(state),
+        "cron_add" => commands::cron::cron_add(state, args),
+        "cron_remove" => {
+            let id = str_arg(&args, "id")?;
+            commands::cron::cron_remove(state, &id)?;
+            Ok(Value::Null)
+        }
+        "cron_update" => {
+            let id = str_arg(&args, "id")?;
+            let patch = args.get("patch").cloned().unwrap_or(args.clone());
+            commands::cron::cron_update(state, &id, patch)
+        }
+        "cron_run" => {
+            let id = str_arg(&args, "id")?;
+            let status = commands::cron::cron_run(state, &id)?;
+            Ok(Value::String(status))
+        }
+
         _ => Err(format!("Unknown command: {}", command)),
     }
 }

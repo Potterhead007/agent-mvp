@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod bootstrap;
 pub mod config;
+pub mod cron;
 pub mod device;
 pub mod docker;
 pub mod health;
