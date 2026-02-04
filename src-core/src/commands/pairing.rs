@@ -1,3 +1,4 @@
+use crate::security::sanitize;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
@@ -62,7 +63,7 @@ pub fn list_pairing_requests(
         return Ok(requests);
     }
 
-    Err(format!("Failed to parse pairing response: {}", &trimmed[..trimmed.len().min(200)]))
+    Err(format!("Failed to parse pairing response: {}", sanitize::truncate_str(trimmed, 200)))
 }
 
 pub fn approve_pairing_request(

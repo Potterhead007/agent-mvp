@@ -35,6 +35,19 @@ pub fn sanitize_shell_arg(input: &str) -> String {
         .collect()
 }
 
+/// Find the largest byte index <= `max_bytes` that sits on a UTF-8 char boundary.
+/// Use this instead of `&s[..n]` to avoid panicking on multi-byte characters.
+pub fn truncate_str(s: &str, max_bytes: usize) -> &str {
+    if max_bytes >= s.len() {
+        return s;
+    }
+    let mut i = max_bytes;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    &s[..i]
+}
+
 pub fn validate_id(id: &str) -> Result<(), String> {
     if id.is_empty() {
         return Err("ID cannot be empty".to_string());
@@ -148,5 +161,31 @@ mod tests {
     fn sanitize_path_returns_none_for_nonexistent_base() {
         let result = sanitize_path("/nonexistent/base/path", "file.txt");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn truncate_str_ascii() {
+        assert_eq!(truncate_str("hello world", 5), "hello");
+        assert_eq!(truncate_str("hi", 10), "hi");
+        assert_eq!(truncate_str("", 5), "");
+    }
+
+    #[test]
+    fn truncate_str_multibyte_does_not_panic() {
+        // '€' is 3 bytes (E2 82 AC). Slicing at byte 1 or 2 would panic with &s[..n].
+        let s = "€€€"; // 9 bytes
+        assert_eq!(truncate_str(s, 3), "€");
+        assert_eq!(truncate_str(s, 4), "€"); // backs up to byte 3
+        assert_eq!(truncate_str(s, 5), "€"); // backs up to byte 3
+        assert_eq!(truncate_str(s, 6), "€€");
+        assert_eq!(truncate_str(s, 1), ""); // can't fit even one char
+    }
+
+    #[test]
+    fn truncate_str_emoji() {
+        let s = "🎉test"; // 🎉 is 4 bytes
+        assert_eq!(truncate_str(s, 4), "🎉");
+        assert_eq!(truncate_str(s, 3), ""); // can't split the emoji
+        assert_eq!(truncate_str(s, 8), "🎉test");
     }
 }
