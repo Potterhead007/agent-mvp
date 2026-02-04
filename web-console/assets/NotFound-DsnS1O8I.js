@@ -1,0 +1,6 @@
+import{c as t,ab as o,j as e,B as s,f as r}from"./index-DLzrVyEL.js";import{u as n}from"./usePageTitle-BWQ1x_eW.js";import{A as l}from"./arrow-left-C5yC48ji.js";/**
+ * @license lucide-react v0.400.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const i=t("House",[["path",{d:"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8",key:"5wwlr5"}],["path",{d:"M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",key:"1d0kgt"}]]);function m(){n("Page Not Found");const a=o();return e.jsxs("div",{className:"flex h-full flex-col items-center justify-center gap-6 text-center",children:[e.jsxs("div",{className:"space-y-2",children:[e.jsx("h1",{className:"text-6xl font-bold tracking-tight text-muted-foreground/50",children:"404"}),e.jsx("h2",{className:"text-xl font-semibold",children:"Page not found"}),e.jsx("p",{className:"text-sm text-muted-foreground max-w-sm",children:"The page you're looking for doesn't exist or has been moved."})]}),e.jsxs("div",{className:"flex gap-3",children:[e.jsxs(s,{variant:"outline",onClick:()=>a(-1),children:[e.jsx(l,{className:"mr-2 h-4 w-4"})," Go Back"]}),e.jsx(s,{asChild:!0,children:e.jsxs(r,{to:"/",children:[e.jsx(i,{className:"mr-2 h-4 w-4"})," Dashboard"]})})]})]})}export{m as default};

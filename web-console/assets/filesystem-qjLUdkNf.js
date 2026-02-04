@@ -1,0 +1,1 @@
+import{i as n}from"./index-DLzrVyEL.js";async function i(e){return n("read_agent_file",{relativePath:e})}async function a(e,r){return n("write_agent_file",{relativePath:e,content:r})}export{i as r,a as w};

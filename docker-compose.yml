@@ -1,0 +1,96 @@
+name: agentic-console
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agent-mvp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-openclaw}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openclaw}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: 128mb
+
+  redis:
+    image: redis:7-alpine
+    container_name: agent-mvp-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+      --appendonly no
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: agent-mvp-gateway
+    restart: unless-stopped
+    env_file:
+      - .openclaw/.env
+    environment:
+      OPENCLAW_DISABLE_BONJOUR: "1"
+      NODE_ENV: production
+      GATEWAY_PORT: ${GATEWAY_PORT:-18790}
+    ports:
+      - "127.0.0.1:${GATEWAY_PORT:-18790}:${GATEWAY_PORT:-18790}"
+    volumes:
+      - ./.openclaw:/home/openclaw/.openclaw:rw
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=100M
+    security_opt:
+      - no-new-privileges:true
+
+  bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.bridge
+    container_name: agent-mvp-bridge
+    restart: unless-stopped
+    environment:
+      BRIDGE_PORT: ${BRIDGE_PORT:-18791}
+      BRIDGE_AUTO_TOKEN: ${BRIDGE_AUTO_TOKEN}
+      GATEWAY_WS_URL: ws://gateway:${GATEWAY_PORT:-18790}
+      RUST_LOG: info
+    ports:
+      - "127.0.0.1:${BRIDGE_PORT:-18791}:18791"
+    volumes:
+      - ./.openclaw:/home/bridge/.openclaw:rw
+      - ./web:/home/bridge/web:ro
+    depends_on:
+      gateway:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=10M
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  pgdata:
+    driver: local

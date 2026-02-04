@@ -1,0 +1,72 @@
+{
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "maxConcurrent": 4,
+      "sandbox": {
+        "mode": "off",
+        "scope": "session",
+        "workspaceAccess": "rw"
+      },
+      "subagents": {
+        "maxConcurrent": 8
+      },
+      "workspace": "/home/openclaw/.openclaw/workspace"
+    },
+    "list": [
+      {
+        "id": "tezt",
+        "model": "grok-4-1-fast-reasoning",
+        "name": "TEZT",
+        "tools": {
+          "allow": [
+            "*"
+          ],
+          "deny": []
+        },
+        "workspace": "/home/openclaw/.openclaw/agents/tezt"
+      },
+      {
+        "enabled": true,
+        "id": "empty-name-test",
+        "model": "xai/grok-3-mini",
+        "name": "",
+        "personality": "agents/empty-name-test/agent/SOUL.md"
+      }
+    ]
+  },
+  "automation": {
+    "cron": [],
+    "webhooks": []
+  },
+  "settings": {
+    "channels": {
+      "discord": {
+        "enabled": false
+      },
+      "telegram": {
+        "enabled": true
+      }
+    },
+    "desktop": {
+      "dockerComposePath": "~/agent-mvp",
+      "healthCheckIntervalMs": 10000
+    },
+    "gateway": {
+      "port": 18790,
+      "url": "http://localhost:18790",
+      "wsUrl": "ws://localhost:18790"
+    },
+    "security": {
+      "auditLogging": true,
+      "networkIsolation": true,
+      "sandboxMode": "docker"
+    },
+    "services": {
+      "postgresPort": 5433,
+      "redisPort": 6380
+    }
+  }
+}

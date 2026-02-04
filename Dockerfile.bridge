@@ -1,0 +1,55 @@
+# Stage 1: Build the bridge binary
+FROM rust:1.85-slim AS builder
+
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Copy workspace manifests first for layer caching
+COPY Cargo.toml Cargo.lock ./
+COPY src-core/Cargo.toml src-core/Cargo.toml
+COPY src-bridge/Cargo.toml src-bridge/Cargo.toml
+COPY src-tauri/Cargo.toml src-tauri/Cargo.toml
+
+# Create dummy source files so cargo can resolve the workspace
+RUN mkdir -p src-core/src src-bridge/src src-tauri/src && \
+    echo "fn main() {}" > src-bridge/src/main.rs && \
+    echo "" > src-core/src/lib.rs && \
+    echo "fn main() {}" > src-tauri/src/main.rs && \
+    echo "" > src-tauri/src/lib.rs
+
+# Pre-build dependencies (cached layer)
+RUN cargo build --release --package agentic-console-bridge 2>/dev/null || true
+
+# Copy real source
+COPY src-core/ src-core/
+COPY src-bridge/ src-bridge/
+
+# Touch source files to invalidate the dummy build
+RUN touch src-core/src/lib.rs src-bridge/src/main.rs
+
+# Build the actual binary
+RUN cargo build --release --package agentic-console-bridge && \
+    strip /build/target/release/agentic-bridge
+
+# Stage 2: Minimal runtime
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Non-root user
+RUN groupadd -r bridge && useradd -r -g bridge -m -s /bin/false bridge
+
+COPY --from=builder /build/target/release/agentic-bridge /usr/local/bin/agentic-bridge
+
+USER bridge
+WORKDIR /home/bridge
+
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+  CMD curl -sf http://127.0.0.1:18791/api/health || exit 1
+
+EXPOSE 18791
+
+CMD ["agentic-bridge", "--port", "18791", "--bind", "0.0.0.0", "--gateway-url", "ws://gateway:18790", "--auto-token-env", "BRIDGE_AUTO_TOKEN"]

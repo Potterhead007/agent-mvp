@@ -1,0 +1,182 @@
+{
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "mode": "safeguard"
+      },
+      "maxConcurrent": 4,
+      "sandbox": {
+        "mode": "off",
+        "scope": "session",
+        "workspaceAccess": "rw"
+      },
+      "subagents": {
+        "maxConcurrent": 8
+      },
+      "workspace": "/home/openclaw/.openclaw/workspace"
+    },
+    "list": [
+      {
+        "id": "tezt",
+        "model": {
+          "primary": "xai/grok-4-1-fast-reasoning"
+        },
+        "name": "TEZT",
+        "tools": {
+          "allow": [
+            "*"
+          ],
+          "deny": []
+        },
+        "workspace": "/home/openclaw/.openclaw/agents/tezt"
+      },
+      {
+        "id": "empty-name-test",
+        "model": {
+          "primary": "xai/grok-3-mini"
+        },
+        "name": "",
+        "tools": {
+          "allow": [
+            "*"
+          ],
+          "deny": []
+        },
+        "workspace": "/home/openclaw/.openclaw/agents/empty-name-test"
+      }
+    ]
+  },
+  "channels": {
+    "discord": {
+      "enabled": true
+    },
+    "telegram": {
+      "enabled": true
+    }
+  },
+  "commands": {
+    "bash": false,
+    "config": false,
+    "native": "auto",
+    "nativeSkills": "auto",
+    "useAccessGroups": true
+  },
+  "discovery": {
+    "mdns": {
+      "mode": "off"
+    }
+  },
+  "env": {
+    "shellEnv": {
+      "enabled": false
+    }
+  },
+  "gateway": {
+    "auth": {
+      "mode": "token",
+      "token": "398f9340d4ce407f9721eb44feda61c0"
+    },
+    "bind": "loopback",
+    "mode": "local",
+    "port": 18790,
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    }
+  },
+  "logging": {
+    "redactPatterns": [
+      "xai-[A-Za-z0-9_-]+",
+      "bot[0-9]{8,}:[A-Za-z0-9_-]+",
+      "sk-[A-Za-z0-9_-]+",
+      "API_KEY=[^\\s]+",
+      "PASSWORD=[^\\s]+",
+      "TOKEN=[^\\s]+"
+    ],
+    "redactSensitive": "tools"
+  },
+  "messages": {
+    "ackReactionScope": "group-mentions"
+  },
+  "meta": {
+    "lastTouchedAt": "2026-02-04T06:34:38.730Z",
+    "lastTouchedVersion": "2026.2.1"
+  },
+  "models": {
+    "providers": {
+      "xai": {
+        "api": "openai-completions",
+        "baseUrl": "https://api.x.ai/v1",
+        "models": [
+          {
+            "contextWindow": 131072,
+            "cost": {
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "input": 0,
+              "output": 0
+            },
+            "id": "grok-4-1-fast-reasoning",
+            "input": [
+              "text"
+            ],
+            "maxTokens": 8192,
+            "name": "Grok 4.1 Fast Reasoning",
+            "reasoning": false
+          },
+          {
+            "contextWindow": 131072,
+            "cost": {
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "input": 0,
+              "output": 0
+            },
+            "id": "grok-3-mini",
+            "input": [
+              "text"
+            ],
+            "maxTokens": 8192,
+            "name": "Grok 3 Mini",
+            "reasoning": false
+          }
+        ]
+      }
+    }
+  },
+  "plugins": {
+    "allow": [
+      "telegram",
+      "discord"
+    ],
+    "entries": {
+      "discord": {
+        "enabled": true
+      },
+      "telegram": {
+        "enabled": true
+      }
+    }
+  },
+  "session": {
+    "dmScope": "per-channel-peer",
+    "resetTriggers": []
+  },
+  "skills": {
+    "allowBundled": [],
+    "install": {
+      "nodeManager": "npm"
+    }
+  },
+  "tools": {
+    "elevated": {
+      "allowFrom": {}
+    }
+  },
+  "wizard": {
+    "lastRunAt": "2026-01-31T09:13:48.122Z",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local",
+    "lastRunVersion": "2026.1.29"
+  }
+}

@@ -1,0 +1,23 @@
+# Secrets — never commit
+.env
+.env.plain
+.env.enc
+*.pem
+*.key
+
+# OpenClaw runtime
+.openclaw/credentials/
+.openclaw/agents/*/sessions/
+.openclaw/agents/*/agent/auth-profiles.json
+.openclaw/extensions/
+.openclaw/*.log
+
+# Docker volumes
+docker-volumes/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node (if local dev)
+node_modules/

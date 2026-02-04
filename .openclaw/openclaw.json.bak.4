@@ -1,0 +1,157 @@
+{
+  "gateway": {
+    "port": 18790,
+    "bind": "loopback",
+    "auth": {
+      "mode": "token"
+    },
+    "controlUi": {
+      "allowInsecureAuth": false,
+      "dangerouslyDisableDeviceAuth": false
+    }
+  },
+
+  "discovery": {
+    "mdns": {
+      "mode": "off"
+    }
+  },
+
+  "models": {
+    "providers": [
+      {
+        "id": "xai",
+        "baseUrl": "https://api.x.ai/v1",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "grok-4-1-fast-reasoning",
+            "contextWindow": 131072,
+            "cost": {
+              "input": 0.20,
+              "output": 0.50
+            }
+          },
+          {
+            "id": "grok-3-mini",
+            "contextWindow": 131072,
+            "cost": {
+              "input": 0.05,
+              "output": 0.10
+            }
+          }
+        ]
+      }
+    ]
+  },
+
+  "agents": {
+    "defaults": {
+      "model": "xai/grok-4-1-fast-reasoning",
+      "fallbackModel": "xai/grok-3-mini",
+      "workspace": "~/.openclaw/agents/mvp",
+      "sandbox": {
+        "mode": "all",
+        "scope": "session",
+        "workspaceAccess": "rw",
+        "image": "debian:bookworm-slim",
+        "network": "none",
+        "capDrop": ["ALL"],
+        "readOnly": true,
+        "tmpfs": ["/tmp:size=50M"],
+        "timeout": 120
+      },
+      "maxTurns": 25,
+      "maxTokensPerTurn": 8192,
+      "contextCompaction": {
+        "enabled": true,
+        "threshold": 100000
+      }
+    },
+    "list": [
+      {
+        "id": "mvp",
+        "name": "Agent",
+        "description": "Security-hardened AI assistant",
+        "workspace": "~/.openclaw/agents/mvp",
+        "tools": {
+          "allow": ["read", "write", "exec", "memory_search", "memory_get"],
+          "deny": ["browser", "web_fetch", "web_search", "elevated", "process"]
+        },
+        "groupChat": {
+          "mentionPatterns": []
+        }
+      }
+    ]
+  },
+
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "groupPolicy": "disabled",
+      "textChunkLimit": 4000,
+      "mediaMaxMb": 5,
+      "replyToMode": "first",
+      "streamMode": "off"
+    }
+  },
+
+  "session": {
+    "dmScope": "per-channel-peer",
+    "resetTriggers": []
+  },
+
+  "tools": {
+    "elevated": {
+      "allowFrom": ["owner"],
+      "host": "sandbox"
+    }
+  },
+
+  "skills": {
+    "allowBundled": [],
+    "allowInstall": false
+  },
+
+  "commands": {
+    "bash": false,
+    "config": false,
+    "useAccessGroups": true
+  },
+
+  "messages": {
+    "prefixes": {
+      "assistant": ""
+    },
+    "reactions": {
+      "enabled": false
+    }
+  },
+
+  "env": {
+    "shellEnv": {
+      "enabled": false
+    }
+  },
+
+  "logging": {
+    "redactSensitive": "tools",
+    "redactPatterns": [
+      "xai-[A-Za-z0-9_-]+",
+      "bot[0-9]{8,}:[A-Za-z0-9_-]+",
+      "sk-[A-Za-z0-9_-]+",
+      "API_KEY=[^\\s]+",
+      "PASSWORD=[^\\s]+",
+      "TOKEN=[^\\s]+"
+    ]
+  },
+
+  "plugins": {
+    "allow": []
+  },
+
+  "browser": {
+    "mode": "off"
+  }
+}

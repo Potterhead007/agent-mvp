@@ -1,0 +1,1 @@
+import{i as n}from"./index-DMLsphgf.js";async function o(){return n("read_config")}let e=Promise.resolve(),i=null;async function c(t){const a=e.then(async()=>{try{i=await n("read_config")}catch{}await n("validate_config",{config:t}),await n("write_config",{config:t})});return e=a.catch(()=>{}),a}async function s(){return n("get_openclaw_dir")}export{s as g,o as r,c as w};
