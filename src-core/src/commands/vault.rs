@@ -4,6 +4,7 @@ use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -46,8 +47,8 @@ const MAX_FREE_ATTEMPTS: u32 = 3;
 const MAX_BACKOFF_MS: u64 = 60_000;
 
 fn now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
 }

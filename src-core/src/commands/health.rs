@@ -1,7 +1,9 @@
 use crate::constants::DEFAULT_GATEWAY_PORT;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::net::TcpStream;
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
@@ -21,7 +23,7 @@ fn tcp_reachable(host: &str, port: u16, timeout: Duration) -> bool {
 }
 
 pub fn is_bridge_mode() -> bool {
-    std::env::var("GATEWAY_WS_URL").is_ok() || std::path::Path::new("/.dockerenv").exists()
+    std::env::var("GATEWAY_WS_URL").is_ok() || Path::new("/.dockerenv").exists()
 }
 
 fn parse_gateway_ws_url() -> Option<(String, u16)> {
@@ -83,7 +85,7 @@ pub struct HealthReport {
 
 fn read_config_json(state: &AppState) -> Option<serde_json::Value> {
     let config_path = format!("{}/openclaw.json", state.openclaw_dir);
-    let content = std::fs::read_to_string(&config_path).ok()?;
+    let content = fs::read_to_string(&config_path).ok()?;
     serde_json::from_str(&content).ok()
 }
 
@@ -91,7 +93,7 @@ fn read_config_json(state: &AppState) -> Option<serde_json::Value> {
 pub fn get_gateway_token(state: &AppState) -> Option<String> {
     // 1. Device auth token (issued by the gateway during device pairing)
     let device_auth_path = format!("{}/identity/device-auth.json", state.openclaw_dir);
-    if let Ok(content) = std::fs::read_to_string(&device_auth_path) {
+    if let Ok(content) = fs::read_to_string(&device_auth_path) {
         if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(token) = auth["tokens"]["operator"]["token"].as_str() {
                 if !token.is_empty() {
@@ -108,7 +110,7 @@ pub fn get_gateway_token(state: &AppState) -> Option<String> {
     }
     // 3. .openclaw/.env file
     let env_path = format!("{}/.env", state.openclaw_dir);
-    if let Ok(content) = std::fs::read_to_string(&env_path) {
+    if let Ok(content) = fs::read_to_string(&env_path) {
         for line in content.lines() {
             if let Some(val) = line.strip_prefix("GATEWAY_TOKEN=") {
                 let val = val.trim();
@@ -218,9 +220,9 @@ pub fn security_audit(state: &AppState) -> Result<Vec<SecurityCheckResult>, Stri
     let encrypted_secrets_path = format!("{}/vault_secrets.enc", state.vault_dir);
     let plaintext_secrets_path = format!("{}/vault_secrets.json", state.vault_dir);
     let lock_path = format!("{}/vault.lock", state.vault_dir);
-    let vault_exists = std::path::Path::new(&lock_path).exists();
-    let encrypted_exist = std::path::Path::new(&encrypted_secrets_path).is_file();
-    let plaintext_exist = std::path::Path::new(&plaintext_secrets_path).is_file();
+    let vault_exists = Path::new(&lock_path).exists();
+    let encrypted_exist = Path::new(&encrypted_secrets_path).is_file();
+    let plaintext_exist = Path::new(&plaintext_secrets_path).is_file();
 
     let (cred_status, cred_detail) = if bridge {
         ("pass", "Credentials managed by host vault")
@@ -239,7 +241,7 @@ pub fn security_audit(state: &AppState) -> Result<Vec<SecurityCheckResult>, Stri
         detail: cred_detail.to_string(),
     });
 
-    let openclaw_path = std::path::Path::new(&state.openclaw_dir);
+    let openclaw_path = Path::new(&state.openclaw_dir);
     checks.push(SecurityCheckResult {
         name: "File Scope".to_string(),
         status: if openclaw_path.exists() { "pass".to_string() } else { "warn".to_string() },
@@ -277,7 +279,7 @@ pub fn security_audit(state: &AppState) -> Result<Vec<SecurityCheckResult>, Stri
         });
     }
 
-    let audit_exists = std::path::Path::new(&state.audit_log_path).exists();
+    let audit_exists = Path::new(&state.audit_log_path).exists();
     let audit_writable = std::fs::OpenOptions::new()
         .append(true)
         .open(&state.audit_log_path)
@@ -410,7 +412,7 @@ mod tests {
         // In normal test environment (not in Docker), should be false
         // unless GATEWAY_WS_URL is set
         if std::env::var("GATEWAY_WS_URL").is_err()
-            && !std::path::Path::new("/.dockerenv").exists()
+            && !Path::new("/.dockerenv").exists()
         {
             assert!(!is_bridge_mode());
         }

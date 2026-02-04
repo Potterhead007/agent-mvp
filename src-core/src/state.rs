@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::Path;
 use std::sync::Mutex;
 
 #[derive(Default)]
@@ -50,15 +52,15 @@ impl AppState {
     /// In bridge mode returns parent of `openclaw_dir`. Otherwise reads from config, falls back to ~/agent-mvp.
     pub fn docker_compose_dir(&self) -> String {
         if crate::commands::health::is_bridge_mode() {
-            return std::path::Path::new(&self.openclaw_dir)
+            return Path::new(&self.openclaw_dir)
                 .parent()
-                .unwrap_or(std::path::Path::new(&self.openclaw_dir))
+                .unwrap_or(Path::new(&self.openclaw_dir))
                 .to_string_lossy()
                 .to_string();
         }
 
         let config_path = format!("{}/openclaw.json", self.openclaw_dir);
-        if let Ok(content) = std::fs::read_to_string(&config_path) {
+        if let Ok(content) = fs::read_to_string(&config_path) {
             if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(path) = config["settings"]["desktop"]["dockerComposePath"].as_str() {
                     if let Some(stripped) = path.strip_prefix("~/") {

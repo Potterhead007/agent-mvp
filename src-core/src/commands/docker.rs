@@ -2,6 +2,8 @@ use crate::constants::DEFAULT_GATEWAY_PORT;
 use crate::security::{audit, sanitize};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
@@ -14,7 +16,7 @@ pub struct ServiceStatus {
     pub health: String,
 }
 pub(crate) fn validate_compose_dir(dir: &str) -> Result<(), String> {
-    let path = std::path::Path::new(dir);
+    let path = Path::new(dir);
     if !path.is_dir() {
         return Err(format!(
             "Docker compose directory does not exist: {}",
@@ -61,7 +63,7 @@ pub(crate) fn find_docker() -> String {
     ];
 
     for path in candidates {
-        if std::path::Path::new(path).exists() {
+        if Path::new(path).exists() {
             return path.to_string();
         }
     }
@@ -162,8 +164,8 @@ fn check_port_available(port: u16) -> Result<(), String> {
 }
 
 fn read_env_ports(dir: &str) -> (u16, u16, u16) {
-    let env_path = std::path::Path::new(dir).join(".env");
-    let content = std::fs::read_to_string(env_path).unwrap_or_default();
+    let env_path = Path::new(dir).join(".env");
+    let content = fs::read_to_string(env_path).unwrap_or_default();
     let mut gw: u16 = DEFAULT_GATEWAY_PORT;
     let mut pg: u16 = 5433;
     let mut rd: u16 = 6380;
@@ -253,7 +255,7 @@ fn ensure_device_paired_with_retries(compose_dir: &str, max_attempts: u32) -> Re
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let meta = std::fs::metadata(&identity_path)
+        let meta = fs::metadata(&identity_path)
             .map_err(|e| format!("Failed to stat device identity: {}", e))?;
         let mode = meta.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
@@ -265,7 +267,7 @@ fn ensure_device_paired_with_retries(compose_dir: &str, max_attempts: u32) -> Re
         }
     }
 
-    let content = std::fs::read_to_string(&identity_path)
+    let content = fs::read_to_string(&identity_path)
         .map_err(|e| format!("Failed to read device identity: {}", e))?;
     let identity: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("Failed to parse identity: {}", e))?;
