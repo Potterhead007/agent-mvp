@@ -17,7 +17,6 @@ struct PairingListResponse {
     requests: Vec<PairingRequest>,
 }
 
-/// List pending pairing requests for a channel via the gateway CLI.
 pub fn list_pairing_requests(
     state: &AppState,
     channel: String,
@@ -66,7 +65,6 @@ pub fn list_pairing_requests(
     Err(format!("Failed to parse pairing response: {}", &trimmed[..trimmed.len().min(200)]))
 }
 
-/// Approve a pairing request by code for a channel.
 pub fn approve_pairing_request(
     state: &AppState,
     channel: String,

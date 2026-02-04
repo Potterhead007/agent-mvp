@@ -17,10 +17,6 @@ pub struct BridgeState {
     pub gateway_ws_url: String,
 }
 
-// ---------------------------------------------------------------------------
-// WebSocket proxy: browser <-> bridge <-> gateway
-// ---------------------------------------------------------------------------
-
 #[derive(serde::Deserialize)]
 pub struct WsQuery {
     token: Option<String>,
@@ -52,8 +48,6 @@ pub async fn ws_handler(
     ws.on_upgrade(move |socket| handle_ws_proxy(socket, gateway_url))
 }
 
-/// After the browser WebSocket is accepted, connect to the gateway and proxy
-/// messages in both directions until either side disconnects.
 async fn handle_ws_proxy(browser_ws: WebSocket, gateway_ws_url: String) {
     // Connect to the Docker gateway
     let gateway_conn = tokio_tungstenite::connect_async(&gateway_ws_url).await;
@@ -129,7 +123,6 @@ async fn handle_ws_proxy(browser_ws: WebSocket, gateway_ws_url: String) {
     }
 }
 
-/// Convert an axum WebSocket message to a tungstenite message for the gateway.
 fn axum_msg_to_tungstenite(msg: Message) -> Option<tungstenite::Message> {
     match msg {
         Message::Text(text) => Some(tungstenite::Message::Text(text.to_string())),
@@ -140,7 +133,6 @@ fn axum_msg_to_tungstenite(msg: Message) -> Option<tungstenite::Message> {
     }
 }
 
-/// Convert a tungstenite message from the gateway to an axum WebSocket message.
 fn tungstenite_msg_to_axum(msg: tungstenite::Message) -> Option<Message> {
     match msg {
         tungstenite::Message::Text(text) => Some(Message::Text(text.into())),
@@ -151,10 +143,6 @@ fn tungstenite_msg_to_axum(msg: tungstenite::Message) -> Option<Message> {
         tungstenite::Message::Frame(_) => None, // Raw frames — ignore
     }
 }
-
-// ---------------------------------------------------------------------------
-// Pairing
-// ---------------------------------------------------------------------------
 
 #[derive(serde::Deserialize)]
 pub struct PairRequest {
@@ -187,10 +175,6 @@ pub async fn pair_handler(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Auth middleware helper
-// ---------------------------------------------------------------------------
-
 fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
     headers
         .get("authorization")
@@ -217,10 +201,6 @@ fn require_auth(
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Command dispatch
-// ---------------------------------------------------------------------------
 
 pub async fn invoke_handler(
     AxumState(state): AxumState<Arc<BridgeState>>,
@@ -634,10 +614,6 @@ fn dispatch_command(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Health check (no auth required)
-// ---------------------------------------------------------------------------
-
 pub async fn health_handler() -> Json<Value> {
     Json(serde_json::json!({
         "status": "ok",
@@ -645,10 +621,6 @@ pub async fn health_handler() -> Json<Value> {
         "version": env!("CARGO_PKG_VERSION"),
     }))
 }
-
-// ---------------------------------------------------------------------------
-// Auto-token endpoint (no auth required — localhost-only by design)
-// ---------------------------------------------------------------------------
 
 pub async fn auto_token_handler(
     AxumState(state): AxumState<Arc<BridgeState>>,

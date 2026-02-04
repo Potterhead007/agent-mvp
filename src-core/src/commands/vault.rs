@@ -9,10 +9,6 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use argon2::Argon2;
 use rand::RngCore;
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultEntry {
@@ -45,10 +41,6 @@ pub(crate) struct EncryptedBlob {
     pub ciphertext: String,
 }
 
-// ---------------------------------------------------------------------------
-// Rate limiting
-// ---------------------------------------------------------------------------
-
 const MAX_FREE_ATTEMPTS: u32 = 3;
 const MAX_BACKOFF_MS: u64 = 60_000;
 
@@ -67,10 +59,6 @@ fn required_delay_ms(failed_attempts: u32) -> u64 {
     let delay = 2000u64.saturating_mul(1u64 << exponent.min(5));
     delay.min(MAX_BACKOFF_MS)
 }
-
-// ---------------------------------------------------------------------------
-// Crypto helpers
-// ---------------------------------------------------------------------------
 
 fn derive_encryption_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
     let mut key = [0u8; 32];
@@ -129,10 +117,6 @@ pub(crate) mod hex {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Vault file helpers
-// ---------------------------------------------------------------------------
-
 fn secrets_path(vault_dir: &str) -> String {
     format!("{}/vault_secrets.enc", vault_dir)
 }
@@ -168,10 +152,6 @@ fn get_encryption_key(state: &AppState) -> Result<[u8; 32], String> {
         .encryption_key
         .ok_or_else(|| "Vault is locked — unlock first".to_string())
 }
-
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
 
 pub fn vault_list(state: &AppState) -> Result<Vec<VaultEntry>, String> {
     let vault_meta_path = format!("{}/vault_meta.json", state.vault_dir);
@@ -351,7 +331,6 @@ pub fn vault_unlock(
     }
 }
 
-/// Lock the vault — clear encryption key from memory.
 pub fn vault_lock(state: &AppState) -> Result<(), String> {
     let mut vault = state.vault.lock().map_err(|_| "Vault lock poisoned")?;
     vault.encryption_key = None;
@@ -421,12 +400,6 @@ pub fn vault_remove(state: &AppState, key: String) -> Result<(), String> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Migration
-// ---------------------------------------------------------------------------
-
-/// Migrate plaintext vault_secrets.json to encrypted vault_secrets.enc.
-/// Runs once on first unlock after upgrade. Deletes the plaintext file.
 fn migrate_plaintext_secrets(state: &AppState, enc_key: &[u8; 32]) {
     let plaintext_path = format!("{}/vault_secrets.json", state.vault_dir);
     if let Ok(content) = std::fs::read_to_string(&plaintext_path) {
@@ -447,12 +420,7 @@ fn migrate_plaintext_secrets(state: &AppState, enc_key: &[u8; 32]) {
     }
 }
 
-/// Legacy SHA-256 verification for vault upgrade path.
-///
-/// Only used for vaults created before the Argon2id migration.
-/// The hardcoded salt is intentionally preserved for backward compatibility
-/// with pre-existing vaults. Will be removed in a future version.
-#[deprecated(note = "Only for pre-Argon2id vaults. Will be removed in a future version.")]
+#[deprecated(note = "Only for pre-Argon2id vaults")]
 fn legacy_verify(password: &str, stored_hash: &str) -> bool {
     use sha2::{Sha256, Digest};
     let salt = b"openclaw-vault-lock-2025";
@@ -462,7 +430,6 @@ fn legacy_verify(password: &str, stored_hash: &str) -> bool {
     let result = hasher.finalize();
     let computed: String = result.iter().map(|b| format!("{:02x}", b)).collect();
     let expected = stored_hash.trim();
-    // Constant-time comparison to prevent timing side-channel attacks.
     let computed_bytes = computed.as_bytes();
     let expected_bytes = expected.as_bytes();
     if computed_bytes.len() != expected_bytes.len() {
@@ -474,10 +441,6 @@ fn legacy_verify(password: &str, stored_hash: &str) -> bool {
     }
     diff == 0
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -613,10 +576,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // -----------------------------------------------------------------------
-    // hex edge cases
-    // -----------------------------------------------------------------------
-
     #[test]
     fn hex_decode_empty_string() {
         let result = hex::decode("").unwrap();
@@ -641,10 +600,6 @@ mod tests {
     fn hex_encode_empty_slice() {
         assert_eq!(hex::encode(&[] as &[u8]), "");
     }
-
-    // -----------------------------------------------------------------------
-    // encrypt/decrypt edge cases
-    // -----------------------------------------------------------------------
 
     #[test]
     fn encrypt_decrypt_empty_data() {
@@ -718,10 +673,6 @@ mod tests {
         assert_ne!(blob1.ciphertext, blob2.ciphertext);
     }
 
-    // -----------------------------------------------------------------------
-    // derive_encryption_key edge cases
-    // -----------------------------------------------------------------------
-
     #[test]
     fn derive_key_different_salts() {
         let salt1 = [1u8; 32];
@@ -739,10 +690,6 @@ mod tests {
         assert_ne!(key, [0u8; 32]); // should produce non-zero key
     }
 
-    // -----------------------------------------------------------------------
-    // rate limiting boundary cases
-    // -----------------------------------------------------------------------
-
     #[test]
     fn rate_limiting_at_boundary() {
         // Exactly at MAX_FREE_ATTEMPTS (3) should start backoff
@@ -757,10 +704,6 @@ mod tests {
         assert_eq!(required_delay_ms(u32::MAX), MAX_BACKOFF_MS);
         assert_eq!(required_delay_ms(1000), MAX_BACKOFF_MS);
     }
-
-    // -----------------------------------------------------------------------
-    // write_secrets edge cases
-    // -----------------------------------------------------------------------
 
     #[test]
     fn write_secrets_empty_map() {
@@ -804,11 +747,6 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Corrupt"));
     }
-
-    // -----------------------------------------------------------------------
-    // vault_unlock / vault_lock / vault_store / vault_read / vault_remove
-    // Full integration tests with real crypto
-    // -----------------------------------------------------------------------
 
     fn make_vault_state(tmp: &std::path::Path) -> AppState {
         let vault_dir = tmp.join("vault");

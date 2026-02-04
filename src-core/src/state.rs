@@ -2,12 +2,8 @@ use std::sync::Mutex;
 
 #[derive(Default)]
 pub struct VaultRuntime {
-    /// AES-256 encryption key derived from master password via Argon2id.
-    /// Only populated after successful unlock.
     pub encryption_key: Option<[u8; 32]>,
-    /// Failed unlock attempts since last success.
     pub failed_attempts: u32,
-    /// Timestamp of last failed attempt (epoch millis).
     pub last_failed_at: u64,
 }
 
@@ -37,11 +33,7 @@ impl AppState {
         }
     }
 
-    /// Path to the desktop-format config file.
-    ///
-    /// In bridge mode, the gateway owns `openclaw.json` (gateway format).
-    /// The desktop UI uses a separate `desktop-config.json` so both formats
-    /// coexist in the same shared volume.
+    /// In bridge mode uses `desktop-config.json` to coexist with the gateway's `openclaw.json`.
     pub fn desktop_config_path(&self) -> String {
         if crate::commands::health::is_bridge_mode() {
             format!("{}/desktop-config.json", self.openclaw_dir)
@@ -50,17 +42,9 @@ impl AppState {
         }
     }
 
-    /// Read docker compose path from config, expanding ~ to home dir.
-    /// Falls back to ~/agent-mvp if not configured.
-    ///
-    /// In bridge mode (inside Docker), the compose directory concept doesn't
-    /// apply — both bridge and gateway share the same `.openclaw` volume.
-    /// Return the parent of `openclaw_dir` so that `{compose_dir}/.openclaw/`
-    /// resolves to the shared volume mount.
+    /// In bridge mode returns parent of `openclaw_dir`. Otherwise reads from config, falls back to ~/agent-mvp.
     pub fn docker_compose_dir(&self) -> String {
         if crate::commands::health::is_bridge_mode() {
-            // openclaw_dir is e.g. /home/bridge/.openclaw
-            // Return parent so {result}/.openclaw/ == openclaw_dir
             return std::path::Path::new(&self.openclaw_dir)
                 .parent()
                 .unwrap_or(std::path::Path::new(&self.openclaw_dir))

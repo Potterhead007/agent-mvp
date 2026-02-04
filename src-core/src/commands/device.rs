@@ -5,11 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 use crate::state::AppState;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeviceIdentityFile {
@@ -29,12 +24,6 @@ pub struct DeviceAuth {
     pub signed_at: u64,
     pub nonce: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Decode a PEM block (strip header/footer, base64 decode) into raw DER bytes.
 fn pem_to_der(pem: &str) -> Result<Vec<u8>, String> {
     let b64: String = pem
         .lines()
@@ -46,7 +35,6 @@ fn pem_to_der(pem: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Failed to decode PEM base64: {}", e))
 }
 
-/// Parse a PKCS8 PEM private key into the raw 32-byte Ed25519 seed.
 fn parse_ed25519_private_key(pem: &str) -> Result<SigningKey, String> {
     let der = pem_to_der(pem)?;
     // PKCS8 Ed25519 DER: 16-byte header + 32-byte seed = 48 bytes
@@ -59,7 +47,6 @@ fn parse_ed25519_private_key(pem: &str) -> Result<SigningKey, String> {
     Err(format!("Unexpected PKCS8 DER length: {} (expected 48)", der.len()))
 }
 
-/// Extract the raw 32-byte public key from SPKI PEM and encode as base64url.
 fn public_key_raw_base64url(pem: &str) -> Result<String, String> {
     let der = pem_to_der(pem)?;
     // SPKI Ed25519: 12-byte prefix + 32-byte key = 44 bytes
@@ -69,7 +56,6 @@ fn public_key_raw_base64url(pem: &str) -> Result<String, String> {
     Err(format!("Unexpected SPKI DER length: {} (expected 44)", der.len()))
 }
 
-/// Build the device auth payload string matching the gateway protocol.
 #[allow(clippy::too_many_arguments)]
 fn build_device_auth_payload(
     device_id: &str,
@@ -98,11 +84,6 @@ fn build_device_auth_payload(
     }
     parts.join("|")
 }
-
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignDeviceParams {
@@ -114,9 +95,6 @@ pub struct SignDeviceParams {
     pub nonce: Option<String>,
 }
 
-/// Sign a device challenge for gateway v3 protocol authentication.
-/// Reads the device identity from {openclaw_dir}/identity/device.json,
-/// builds the auth payload, signs it with Ed25519, and returns the device auth object.
 pub fn sign_device_challenge(
     state: &AppState,
     params: SignDeviceParams,
@@ -177,17 +155,6 @@ pub fn sign_device_challenge(
         nonce: params.nonce,
     })
 }
-
-// ---------------------------------------------------------------------------
-// Device identity generation
-// ---------------------------------------------------------------------------
-
-/// Generate a device identity (Ed25519 keypair) if one does not already exist.
-/// Creates {openclaw_dir}/identity/device.json with:
-///   - version: 1
-///   - deviceId: "openclaw-<uuid>"
-///   - publicKeyPem: SPKI PEM
-///   - privateKeyPem: PKCS8 PEM
 pub fn generate_device_identity(state: &AppState) -> Result<String, String> {
     let identity_dir = std::path::PathBuf::from(&state.openclaw_dir)
         .join("identity");
@@ -279,7 +246,6 @@ pub fn generate_device_identity(state: &AppState) -> Result<String, String> {
     Ok(device_id)
 }
 
-/// Generate a simple UUID v4 using random bytes.
 fn uuid_v4() -> String {
     use rand::RngCore;
     let mut bytes = [0u8; 16];
@@ -296,11 +262,6 @@ fn uuid_v4() -> String {
         bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
     )
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,11 +329,6 @@ mod tests {
         );
         assert_eq!(payload, "v1|dev1|cli|api|admin|scope|999|");
     }
-
-    // -----------------------------------------------------------------------
-    // uuid_v4
-    // -----------------------------------------------------------------------
-
     #[test]
     fn uuid_v4_correct_format() {
         let id = uuid_v4();
@@ -410,11 +366,6 @@ mod tests {
         let id2 = uuid_v4();
         assert_ne!(id1, id2);
     }
-
-    // -----------------------------------------------------------------------
-    // pem_to_der
-    // -----------------------------------------------------------------------
-
     #[test]
     fn pem_to_der_strips_headers() {
         // Create a known PEM with base64 of [1,2,3,4]
@@ -436,11 +387,6 @@ mod tests {
         let der = pem_to_der(pem).unwrap();
         assert!(der.is_empty());
     }
-
-    // -----------------------------------------------------------------------
-    // parse_ed25519_private_key and public_key_raw_base64url
-    // -----------------------------------------------------------------------
-
     #[test]
     fn parse_ed25519_private_key_wrong_length_fails() {
         // Create a PEM with wrong-length DER (not 48 bytes)
@@ -461,11 +407,6 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unexpected SPKI DER length"));
     }
-
-    // -----------------------------------------------------------------------
-    // generate_device_identity and sign_device_challenge integration
-    // -----------------------------------------------------------------------
-
     fn make_device_state(tmp: &std::path::Path) -> crate::state::AppState {
         let audit_path = tmp.join("audit.log");
         let _ = std::fs::write(&audit_path, "");

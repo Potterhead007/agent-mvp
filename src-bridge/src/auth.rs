@@ -3,15 +3,12 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// A 6-character alphanumeric pairing code displayed in the terminal.
-/// Single-use, regenerated on bridge restart.
 pub struct PairingState {
     pub code: String,
     pub used: bool,
     pub failures: Vec<Instant>,
 }
 
-/// Session token stored in memory only.
 pub struct Session {
     #[allow(dead_code)]
     pub token: String,
@@ -25,11 +22,9 @@ impl Session {
     }
 }
 
-/// Manages pairing codes, session tokens, rate limiting, and optional auto-token.
 pub struct AuthManager {
     pub pairing: Mutex<PairingState>,
     pub sessions: Mutex<HashMap<String, Session>>,
-    /// When set, this token is always accepted (Docker auto-connect mode).
     auto_token: Option<String>,
 }
 
@@ -52,21 +47,16 @@ impl AuthManager {
         }
     }
 
-    /// Create an AuthManager with an auto-token that is always accepted.
-    /// Used when the bridge runs in Docker with a shared secret.
     pub fn with_auto_token(token: String) -> Self {
         let mut mgr = Self::new();
         mgr.auto_token = Some(token);
         mgr
     }
 
-    /// Returns the auto-token if configured (for the `/api/auto-token` endpoint).
     pub fn get_auto_token(&self) -> Option<&str> {
         self.auto_token.as_deref()
     }
 
-    /// Attempt to exchange a pairing code for a session token.
-    /// Returns Ok(token) on success, Err(message) on failure.
     pub fn pair(&self, code: &str) -> Result<String, String> {
         let mut pairing = self.pairing.lock().unwrap();
 
@@ -100,8 +90,6 @@ impl AuthManager {
         Ok(token)
     }
 
-    /// Validate a bearer token. Returns true if valid and not expired,
-    /// or if the token matches the auto-token.
     pub fn validate_token(&self, token: &str) -> bool {
         // Check auto-token first (constant-time comparison not needed — not a
         // high-security boundary; the auto-token is only accessible via localhost)
@@ -119,7 +107,6 @@ impl AuthManager {
         }
     }
 
-    /// Get the current pairing code (for display in terminal).
     pub fn current_code(&self) -> String {
         self.pairing.lock().unwrap().code.clone()
     }

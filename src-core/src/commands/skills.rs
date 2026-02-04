@@ -73,7 +73,6 @@ pub fn toggle_skill(
     Ok(())
 }
 
-/// Remove a skill by deleting its directory
 pub fn remove_skill(
     state: &AppState,
     skill_id: String,
@@ -92,7 +91,6 @@ pub fn remove_skill(
     Ok(())
 }
 
-/// Create a new custom skill: creates directory structure and metadata files
 #[allow(clippy::too_many_arguments)]
 pub fn create_skill(
     state: &AppState,
@@ -206,7 +204,6 @@ pub fn create_skill(
     Ok(())
 }
 
-/// Read a file within a skill directory
 pub fn read_skill_file(
     state: &AppState,
     skill_id: String,
@@ -221,7 +218,6 @@ pub fn read_skill_file(
     fs::read_to_string(&safe_path).map_err(|e| format!("Failed to read file: {}", e))
 }
 
-/// Update (write) a file within a skill directory
 pub fn update_skill_file(
     state: &AppState,
     skill_id: String,

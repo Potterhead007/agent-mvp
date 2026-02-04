@@ -12,7 +12,6 @@ pub struct PluginInfo {
     pub enabled: bool,
 }
 
-/// Read gateway config and return the plugin list.
 pub fn list_gateway_plugins(state: &AppState) -> Result<Vec<PluginInfo>, String> {
     let compose_dir = state.docker_compose_dir();
     let gw_config_path = format!("{}/.openclaw/openclaw.json", compose_dir);
@@ -90,7 +89,6 @@ pub fn list_gateway_plugins(state: &AppState) -> Result<Vec<PluginInfo>, String>
     Ok(plugins)
 }
 
-/// Toggle a gateway plugin on or off.
 pub fn toggle_gateway_plugin(
     state: &AppState,
     plugin_id: String,
@@ -178,11 +176,6 @@ mod tests {
         let gw_path = tmp.join("compose/.openclaw/openclaw.json");
         fs::write(&gw_path, config.to_string()).unwrap();
     }
-
-    // -----------------------------------------------------------------------
-    // list_gateway_plugins
-    // -----------------------------------------------------------------------
-
     #[test]
     fn list_plugins_from_allow_list() {
         let tmp = tempfile::tempdir().unwrap();
@@ -260,11 +253,6 @@ mod tests {
         let result = list_gateway_plugins(&state);
         assert!(result.is_err());
     }
-
-    // -----------------------------------------------------------------------
-    // toggle_gateway_plugin
-    // -----------------------------------------------------------------------
-
     #[test]
     fn toggle_plugin_enables() {
         let tmp = tempfile::tempdir().unwrap();

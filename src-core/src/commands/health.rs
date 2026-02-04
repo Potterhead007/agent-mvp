@@ -20,12 +20,10 @@ fn tcp_reachable(host: &str, port: u16, timeout: Duration) -> bool {
     }
 }
 
-/// Detect if we're running inside a Docker container (bridge mode).
 pub fn is_bridge_mode() -> bool {
     std::env::var("GATEWAY_WS_URL").is_ok() || std::path::Path::new("/.dockerenv").exists()
 }
 
-/// Parse gateway host and port from GATEWAY_WS_URL (e.g. "ws://gateway:18790").
 fn parse_gateway_ws_url() -> Option<(String, u16)> {
     let url = std::env::var("GATEWAY_WS_URL").ok()?;
     // Format: ws://host:port or wss://host:port
@@ -41,8 +39,6 @@ fn parse_gateway_ws_url() -> Option<(String, u16)> {
     }
 }
 
-/// Try an HTTP GET to the gateway health endpoint. Falls back to TCP if the
-/// request fails for non-connection reasons (e.g. no /healthz route).
 fn http_healthy(host: &str, port: u16, timeout: Duration) -> bool {
     use std::io::{Read, Write};
     use std::net::ToSocketAddrs;
@@ -85,18 +81,13 @@ pub struct HealthReport {
     pub docker_running: bool,
 }
 
-/// Read config JSON from disk.
 fn read_config_json(state: &AppState) -> Option<serde_json::Value> {
     let config_path = format!("{}/openclaw.json", state.openclaw_dir);
     let content = std::fs::read_to_string(&config_path).ok()?;
     serde_json::from_str(&content).ok()
 }
 
-/// Read the gateway token. Checks multiple sources in priority order:
-/// 1. device-auth.json (token issued during device pairing — what the gateway accepts)
-/// 2. GATEWAY_TOKEN environment variable
-/// 3. .openclaw/.env file (bootstrap token, may differ from the paired token)
-/// In Tauri mode the token comes from the encrypted vault instead.
+/// Checks device-auth.json, then GATEWAY_TOKEN env var, then .openclaw/.env.
 pub fn get_gateway_token(state: &AppState) -> Option<String> {
     // 1. Device auth token (issued by the gateway during device pairing)
     let device_auth_path = format!("{}/identity/device-auth.json", state.openclaw_dir);
@@ -130,7 +121,6 @@ pub fn get_gateway_token(state: &AppState) -> Option<String> {
     None
 }
 
-/// Read a port from the config JSON by path, returning `default` if missing.
 fn config_port(state: &AppState, path: &[&str], default: u16) -> u16 {
     read_config_json(state)
         .and_then(|c| {
@@ -324,11 +314,6 @@ mod tests {
             vault: std::sync::Mutex::new(crate::state::VaultRuntime::default()),
         }
     }
-
-    // -----------------------------------------------------------------------
-    // get_gateway_token
-    // -----------------------------------------------------------------------
-
     #[test]
     fn gateway_token_from_device_auth() {
         let tmp = tempfile::tempdir().unwrap();
@@ -411,11 +396,6 @@ mod tests {
         // Should fall through to .env
         assert_eq!(token, Some("fallback".to_string()));
     }
-
-    // -----------------------------------------------------------------------
-    // parse_gateway_ws_url
-    // -----------------------------------------------------------------------
-
     #[test]
     fn parse_gateway_ws_url_handles_missing_env() {
         // When GATEWAY_WS_URL is not set, returns None
@@ -425,11 +405,6 @@ mod tests {
             assert!(parse_gateway_ws_url().is_none());
         }
     }
-
-    // -----------------------------------------------------------------------
-    // is_bridge_mode
-    // -----------------------------------------------------------------------
-
     #[test]
     fn is_bridge_mode_returns_false_in_test() {
         // In normal test environment (not in Docker), should be false
@@ -440,11 +415,6 @@ mod tests {
             assert!(!is_bridge_mode());
         }
     }
-
-    // -----------------------------------------------------------------------
-    // security_audit
-    // -----------------------------------------------------------------------
-
     #[test]
     fn security_audit_returns_checks() {
         let tmp = tempfile::tempdir().unwrap();
@@ -527,11 +497,6 @@ mod tests {
         assert_eq!(cred.status, "fail");
         assert!(cred.detail.contains("CRITICAL"));
     }
-
-    // -----------------------------------------------------------------------
-    // check_health (limited — depends on network)
-    // -----------------------------------------------------------------------
-
     #[test]
     fn check_health_returns_report() {
         let tmp = tempfile::tempdir().unwrap();
@@ -545,11 +510,6 @@ mod tests {
         let _ = report.redis;
         let _ = report.docker_running;
     }
-
-    // -----------------------------------------------------------------------
-    // config_port
-    // -----------------------------------------------------------------------
-
     #[test]
     fn config_port_returns_default_when_no_config() {
         let tmp = tempfile::tempdir().unwrap();
@@ -615,11 +575,6 @@ mod tests {
         let port = config_port(&state, &["settings", "gateway", "port"], 18790);
         assert_eq!(port, 18790);
     }
-
-    // -----------------------------------------------------------------------
-    // read_config_json
-    // -----------------------------------------------------------------------
-
     #[test]
     fn read_config_json_returns_none_when_missing() {
         let tmp = tempfile::tempdir().unwrap();
@@ -643,11 +598,6 @@ mod tests {
         let config = read_config_json(&state).unwrap();
         assert_eq!(config["key"], "val");
     }
-
-    // -----------------------------------------------------------------------
-    // get_gateway_token additional edge cases
-    // -----------------------------------------------------------------------
-
     #[test]
     fn gateway_token_skips_non_gateway_env_lines() {
         let tmp = tempfile::tempdir().unwrap();
@@ -695,11 +645,6 @@ mod tests {
         let token = get_gateway_token(&state);
         assert_eq!(token, Some("fallback".to_string()));
     }
-
-    // -----------------------------------------------------------------------
-    // security_audit additional cases
-    // -----------------------------------------------------------------------
-
     #[test]
     fn security_audit_audit_log_checks_writability() {
         let tmp = tempfile::tempdir().unwrap();

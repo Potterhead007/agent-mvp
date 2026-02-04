@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 
-/// Write to a temp file then atomically rename to avoid partial writes.
 pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, content).map_err(|e| format!("Failed to write tmp: {}", e))?;

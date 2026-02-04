@@ -5,19 +5,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 
-// ── Data structures ────────────────────────────────────────────────
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserUsage {
     pub user_id: String,
     pub channel: String,
     pub display_name: Option<String>,
-    /// Map of "YYYY-MM-DD" → message count for that day.
     pub daily_counts: HashMap<String, u64>,
     pub total_messages: u64,
     pub last_message_at: Option<String>,
-    /// Per-user quota override: null = use default, 0 = blocked, -1 = unlimited.
     pub daily_quota: Option<i64>,
     pub created_at: String,
 }
@@ -42,8 +38,6 @@ pub struct UserSummary {
     pub daily_quota: Option<i64>,
     pub last_message_at: Option<String>,
 }
-
-// ── Helpers ────────────────────────────────────────────────────────
 
 fn usage_dir(openclaw_dir: &str, channel: &str) -> String {
     format!("{}/usage/{}", openclaw_dir, channel)
@@ -82,7 +76,6 @@ fn write_usage(openclaw_dir: &str, channel: &str, usage: &UserUsage) -> Result<(
     Ok(())
 }
 
-/// Prune daily_counts entries older than 90 days.
 fn prune_old_entries(usage: &mut UserUsage) {
     let cutoff = Utc::now()
         .date_naive()
@@ -128,8 +121,6 @@ fn compute_quota_check(usage: &UserUsage, default_quota: i64) -> QuotaCheck {
         resets_at: next_midnight_utc(),
     }
 }
-
-// ── Commands ───────────────────────────────────────────────────────
 
 pub fn get_user_usage(
     state: &AppState,
@@ -449,11 +440,6 @@ mod tests {
         ).unwrap();
         assert_eq!(get_default_quota(tmp.path().to_str().unwrap()), 100);
     }
-
-    // -----------------------------------------------------------------------
-    // compute_quota_check boundary cases
-    // -----------------------------------------------------------------------
-
     #[test]
     fn compute_quota_check_one_below_limit() {
         let mut usage = make_usage("user1", "telegram");
@@ -490,11 +476,6 @@ mod tests {
         assert!(!check.allowed);
         assert_eq!(check.used, 0);
     }
-
-    // -----------------------------------------------------------------------
-    // prune_old_entries edge cases
-    // -----------------------------------------------------------------------
-
     #[test]
     fn prune_removes_malformed_date_keys() {
         let mut usage = make_usage("user1", "telegram");
@@ -533,11 +514,6 @@ mod tests {
         // 91 days ago should be pruned
         assert!(!usage.daily_counts.contains_key(&day_91));
     }
-
-    // -----------------------------------------------------------------------
-    // record_usage integration
-    // -----------------------------------------------------------------------
-
     fn make_test_state(tmp: &std::path::Path) -> crate::state::AppState {
         let audit = tmp.join("audit.log");
         let _ = fs::write(&audit, "");
@@ -652,11 +628,6 @@ mod tests {
         let result = record_usage(&state, "telegram".to_string(), "../../etc".to_string(), None);
         assert!(result.is_err());
     }
-
-    // -----------------------------------------------------------------------
-    // check_quota
-    // -----------------------------------------------------------------------
-
     #[test]
     fn check_quota_new_user_allowed() {
         let tmp = tempfile::tempdir().unwrap();
@@ -675,11 +646,6 @@ mod tests {
         assert!(check_quota(&state, "".to_string(), "user".to_string()).is_err());
         assert!(check_quota(&state, "ch".to_string(), "".to_string()).is_err());
     }
-
-    // -----------------------------------------------------------------------
-    // get_user_usage
-    // -----------------------------------------------------------------------
-
     #[test]
     fn get_user_usage_returns_error_for_missing_user() {
         let tmp = tempfile::tempdir().unwrap();
@@ -698,11 +664,6 @@ mod tests {
         let usage = get_user_usage(&state, "telegram".to_string(), "user1".to_string()).unwrap();
         assert_eq!(usage.total_messages, 1);
     }
-
-    // -----------------------------------------------------------------------
-    // list_channel_users
-    // -----------------------------------------------------------------------
-
     #[test]
     fn list_channel_users_empty_channel() {
         let tmp = tempfile::tempdir().unwrap();
@@ -737,11 +698,6 @@ mod tests {
         let state = make_test_state(tmp.path());
         assert!(list_channel_users(&state, "../escape".to_string()).is_err());
     }
-
-    // -----------------------------------------------------------------------
-    // set_user_quota
-    // -----------------------------------------------------------------------
-
     #[test]
     fn set_user_quota_overrides_default() {
         let tmp = tempfile::tempdir().unwrap();
@@ -774,11 +730,6 @@ mod tests {
         let result = set_user_quota(&state, "telegram".to_string(), "nobody".to_string(), Some(10));
         assert!(result.is_err());
     }
-
-    // -----------------------------------------------------------------------
-    // set_default_quota
-    // -----------------------------------------------------------------------
-
     #[test]
     fn set_default_quota_writes_to_config() {
         let tmp = tempfile::tempdir().unwrap();

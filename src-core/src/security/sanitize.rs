@@ -1,11 +1,7 @@
-/// Sanitize a file path to prevent directory traversal.
-/// Returns None if the path attempts to escape the allowed scope.
-/// Works for both existing and new files.
 pub fn sanitize_path(base: &str, requested: &str) -> Option<String> {
     let base_path = std::path::Path::new(base).canonicalize().ok()?;
     let full_path = base_path.join(requested);
 
-    // Try canonicalizing the full path (works for existing files)
     if let Ok(canonical) = full_path.canonicalize() {
         if canonical.starts_with(&base_path) {
             return Some(canonical.to_string_lossy().to_string());
@@ -13,14 +9,12 @@ pub fn sanitize_path(base: &str, requested: &str) -> Option<String> {
         return None;
     }
 
-    // For new files: canonicalize the nearest existing ancestor
     let mut ancestor = full_path.as_path();
     loop {
         match ancestor.parent() {
             Some(parent) if parent != ancestor => {
                 if let Ok(canonical_parent) = parent.canonicalize() {
                     if canonical_parent.starts_with(&base_path) {
-                        // Reconstruct full path under the canonical parent
                         let remainder = full_path.strip_prefix(parent).ok()?;
                         let safe = canonical_parent.join(remainder);
                         return Some(safe.to_string_lossy().to_string());
@@ -34,8 +28,6 @@ pub fn sanitize_path(base: &str, requested: &str) -> Option<String> {
     }
 }
 
-/// Sanitize a string for safe use in shell commands.
-/// Strips any characters that could be used for injection.
 pub fn sanitize_shell_arg(input: &str) -> String {
     input
         .chars()
@@ -43,8 +35,6 @@ pub fn sanitize_shell_arg(input: &str) -> String {
         .collect()
 }
 
-/// Validate that an ID is safe to use as a directory/file name component.
-/// Rejects empty strings, path traversal attempts (..), and slashes.
 pub fn validate_id(id: &str) -> Result<(), String> {
     if id.is_empty() {
         return Err("ID cannot be empty".to_string());

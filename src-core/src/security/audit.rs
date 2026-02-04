@@ -3,13 +3,9 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
 
-/// Maximum audit log size before rotation (5 MB).
 const MAX_LOG_SIZE: u64 = 5 * 1024 * 1024;
-/// Number of rotated copies to keep.
 const MAX_ROTATED_COPIES: u32 = 3;
 
-/// Rotate the audit log if it exceeds MAX_LOG_SIZE.
-/// Keeps up to MAX_ROTATED_COPIES rotated copies (.1, .2, .3).
 fn maybe_rotate(path: &str) {
     let p = Path::new(path);
     if let Ok(meta) = fs::metadata(p) {

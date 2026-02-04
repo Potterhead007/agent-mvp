@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::time::Duration;
 
-/// Maximum time (seconds) to wait for any docker compose command.
 const DOCKER_TIMEOUT_SECS: u64 = 120;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,12 +14,6 @@ pub struct ServiceStatus {
     pub status: String,
     pub health: String,
 }
-
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
-/// Verify the docker compose directory exists and contains a compose file.
 pub(crate) fn validate_compose_dir(dir: &str) -> Result<(), String> {
     let path = std::path::Path::new(dir);
     if !path.is_dir() {
@@ -47,8 +40,6 @@ pub(crate) fn validate_compose_dir(dir: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Resolve the docker binary path. macOS .app bundles don't inherit the user's
-/// shell PATH, so we check well-known locations.
 pub(crate) fn find_docker() -> String {
     #[cfg(target_os = "macos")]
     let candidates: &[&str] = &[
@@ -79,7 +70,6 @@ pub(crate) fn find_docker() -> String {
     "docker".to_string()
 }
 
-/// Run a docker compose command with a timeout. Returns stdout/stderr and exit status.
 fn run_docker_compose(
     dir: &str,
     args: &[&str],
@@ -119,11 +109,6 @@ fn run_docker_compose(
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Commands
-// ---------------------------------------------------------------------------
-
 pub fn docker_status(state: &AppState) -> Result<Vec<ServiceStatus>, String> {
     let dir = state.docker_compose_dir();
     // If the compose directory doesn't exist (e.g. running inside Docker),
@@ -158,7 +143,6 @@ pub fn docker_status(state: &AppState) -> Result<Vec<ServiceStatus>, String> {
     Ok(services)
 }
 
-/// Check if our own docker compose containers are already running.
 fn are_own_containers_running(dir: &str) -> bool {
     match run_docker_compose(dir, &["ps", "-q", "--filter", "status=running"], 10) {
         Ok(output) => !String::from_utf8_lossy(&output.stdout).trim().is_empty(),
@@ -166,7 +150,6 @@ fn are_own_containers_running(dir: &str) -> bool {
     }
 }
 
-/// Check if a port is already in use by something other than our own containers.
 fn check_port_available(port: u16) -> Result<(), String> {
     use std::net::{SocketAddr, TcpListener};
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -179,7 +162,6 @@ fn check_port_available(port: u16) -> Result<(), String> {
     }
 }
 
-/// Read configured ports from the .env file in the compose directory.
 fn read_env_ports(dir: &str) -> (u16, u16, u16) {
     let env_path = std::path::Path::new(dir).join(".env");
     let content = std::fs::read_to_string(env_path).unwrap_or_default();
@@ -252,12 +234,6 @@ pub fn docker_up(state: &AppState) -> Result<String, String> {
     }
 }
 
-/// Auto-pair the desktop device with the gateway container.
-/// Reads device identity from disk and uses `docker exec` to approve pairing
-/// inside the gateway container via Node.js.
-///
-/// Retries up to `max_attempts` times with exponential backoff to handle
-/// the case where the gateway container is still starting up.
 fn ensure_device_paired(compose_dir: &str) -> Result<(), String> {
     ensure_device_paired_with_retries(compose_dir, 8)
 }
@@ -512,7 +488,6 @@ pub fn docker_restart_service(
     }
 }
 
-/// Rebuild the gateway Docker image from latest and restart the container.
 pub fn docker_rebuild_gateway(state: &AppState) -> Result<String, String> {
     let dir = state.docker_compose_dir();
     if validate_compose_dir(&dir).is_err() {
@@ -562,11 +537,6 @@ pub fn docker_rebuild_gateway(state: &AppState) -> Result<String, String> {
 
     Ok("Gateway rebuilt and restarted".to_string())
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;

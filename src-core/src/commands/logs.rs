@@ -53,8 +53,6 @@ pub fn search_logs(
     Ok(matches)
 }
 
-/// Log a frontend error to the structured audit log.
-/// Accepts severity, message, and optional component/stack trace.
 pub fn log_frontend_error(
     state: &AppState,
     severity: String,
@@ -86,7 +84,6 @@ pub struct UsageStats {
     pub error_count: usize,
 }
 
-/// Get aggregated usage statistics from the audit log.
 pub fn get_usage_stats(state: &AppState) -> Result<UsageStats, String> {
     let content = fs::read_to_string(&state.audit_log_path).unwrap_or_default();
     let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -144,11 +141,6 @@ mod tests {
             vault: std::sync::Mutex::new(crate::state::VaultRuntime::default()),
         }
     }
-
-    // -----------------------------------------------------------------------
-    // read_audit_log
-    // -----------------------------------------------------------------------
-
     #[test]
     fn read_audit_log_returns_lines_in_reverse() {
         let tmp = tempfile::tempdir().unwrap();
@@ -196,11 +188,6 @@ mod tests {
         let lines = read_audit_log(&state, None).unwrap();
         assert!(lines.is_empty() || lines[0].is_empty());
     }
-
-    // -----------------------------------------------------------------------
-    // search_logs
-    // -----------------------------------------------------------------------
-
     #[test]
     fn search_logs_finds_matching_lines() {
         let tmp = tempfile::tempdir().unwrap();
@@ -241,11 +228,6 @@ mod tests {
         let results = search_logs(&state, "ZZZZZ".to_string(), None).unwrap();
         assert!(results.is_empty());
     }
-
-    // -----------------------------------------------------------------------
-    // log_frontend_error
-    // -----------------------------------------------------------------------
-
     #[test]
     fn log_frontend_error_writes_to_audit_log() {
         let tmp = tempfile::tempdir().unwrap();
@@ -289,11 +271,6 @@ mod tests {
         assert!(content.contains("unknown"));
         assert!(content.contains("minor issue"));
     }
-
-    // -----------------------------------------------------------------------
-    // get_usage_stats
-    // -----------------------------------------------------------------------
-
     #[test]
     fn get_usage_stats_counts_actions() {
         let tmp = tempfile::tempdir().unwrap();

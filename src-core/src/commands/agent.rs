@@ -86,7 +86,6 @@ pub struct FileNode {
     pub children: Option<Vec<FileNode>>,
 }
 
-/// Recursively list the directory tree under ~/.openclaw/
 pub fn list_workspace_tree(state: &AppState) -> Result<Vec<FileNode>, String> {
     fn build_tree(dir: &std::path::Path, base: &std::path::Path) -> Vec<FileNode> {
         let mut nodes = Vec::new();
@@ -138,7 +137,6 @@ pub fn list_workspace_tree(state: &AppState) -> Result<Vec<FileNode>, String> {
     Ok(build_tree(base, base))
 }
 
-/// Create a new file in the workspace
 pub fn create_workspace_file(
     state: &AppState,
     relative_path: String,
@@ -187,7 +185,6 @@ pub fn create_workspace_file(
     Ok(())
 }
 
-/// Create a new agent: creates directory, default files, adds to config
 pub fn create_agent(
     state: &AppState,
     id: String,
@@ -270,7 +267,6 @@ pub fn create_agent(
     Ok(())
 }
 
-/// Update an agent's model or name in config
 pub fn update_agent(
     state: &AppState,
     id: String,
@@ -339,7 +335,6 @@ pub fn update_agent(
     Ok(())
 }
 
-/// Delete an agent from config (optionally delete files)
 pub fn delete_agent(
     state: &AppState,
     id: String,
@@ -382,7 +377,6 @@ pub fn delete_agent(
     Ok(())
 }
 
-/// Clear agent memory files
 pub fn clear_agent_memory(
     state: &AppState,
     agent_id: String,
@@ -403,7 +397,6 @@ pub fn clear_agent_memory(
     Ok(())
 }
 
-/// Archive agent memory files, then clear
 pub fn archive_agent_memory(
     state: &AppState,
     agent_id: String,
@@ -441,11 +434,6 @@ pub fn archive_agent_memory(
     );
     Ok(archive_dir)
 }
-
-// ---------------------------------------------------------------------------
-// Gateway sync
-// ---------------------------------------------------------------------------
-
 pub(crate) fn do_sync_agents_to_gateway(state: &AppState) -> Result<(), String> {
     let desktop_config_path = state.desktop_config_path();
     let desktop_content = fs::read_to_string(&desktop_config_path)
@@ -579,7 +567,6 @@ pub(crate) fn do_sync_agents_to_gateway(state: &AppState) -> Result<(), String> 
     Ok(())
 }
 
-/// Manually trigger a sync of agents from desktop config to gateway config.
 pub fn sync_agents_to_gateway(state: &AppState) -> Result<(), String> {
     do_sync_agents_to_gateway(state)?;
     audit::log_action(
@@ -590,7 +577,6 @@ pub fn sync_agents_to_gateway(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-/// Delete a file in the workspace
 pub fn delete_workspace_file(
     state: &AppState,
     relative_path: String,
@@ -611,8 +597,6 @@ mod tests {
     use super::*;
     use std::fs;
 
-    /// Build a minimal AppState with openclaw_dir pointing at a temp dir.
-    /// Also creates an audit log so audit::log_action doesn't panic.
     fn make_state(tmp: &std::path::Path) -> AppState {
         let audit_path = tmp.join("audit.log");
         let _ = fs::write(&audit_path, "");
@@ -637,7 +621,6 @@ mod tests {
         }
     }
 
-    /// Write a minimal desktop-config.json with the given agents list.
     fn write_config(tmp: &std::path::Path, agents: serde_json::Value) {
         let config = serde_json::json!({
             "agents": { "list": agents, "defaults": {} },
@@ -659,11 +642,6 @@ mod tests {
         assert!(sanitize::validate_id("../etc").is_err());
         assert!(sanitize::validate_id("my-agent").is_ok());
     }
-
-    // -----------------------------------------------------------------------
-    // list_agents
-    // -----------------------------------------------------------------------
-
     #[test]
     fn list_agents_returns_empty_for_no_agents() {
         let tmp = tempfile::tempdir().unwrap();
@@ -743,11 +721,6 @@ mod tests {
         let agents = list_agents(&state).unwrap();
         assert!(agents.is_empty());
     }
-
-    // -----------------------------------------------------------------------
-    // create_agent
-    // -----------------------------------------------------------------------
-
     #[test]
     fn create_agent_adds_to_config_and_creates_files() {
         let tmp = tempfile::tempdir().unwrap();
@@ -817,11 +790,6 @@ mod tests {
         let agents = list_agents(&state).unwrap();
         assert_eq!(agents[0].model, Some("claude-sonnet-4-20250514".to_string()));
     }
-
-    // -----------------------------------------------------------------------
-    // update_agent
-    // -----------------------------------------------------------------------
-
     #[test]
     fn update_agent_changes_fields() {
         let tmp = tempfile::tempdir().unwrap();
@@ -874,11 +842,6 @@ mod tests {
 
         assert!(update_agent(&state, "../evil".to_string(), None, None, None).is_err());
     }
-
-    // -----------------------------------------------------------------------
-    // delete_agent
-    // -----------------------------------------------------------------------
-
     #[test]
     fn delete_agent_removes_from_config() {
         let tmp = tempfile::tempdir().unwrap();
@@ -931,11 +894,6 @@ mod tests {
         let agents = list_agents(&state).unwrap();
         assert!(agents.is_empty());
     }
-
-    // -----------------------------------------------------------------------
-    // clear_agent_memory / archive_agent_memory
-    // -----------------------------------------------------------------------
-
     #[test]
     fn clear_agent_memory_removes_files() {
         let tmp = tempfile::tempdir().unwrap();
@@ -976,11 +934,6 @@ mod tests {
         assert!(memory_dir.exists());
         assert!(fs::read_dir(&memory_dir).unwrap().next().is_none());
     }
-
-    // -----------------------------------------------------------------------
-    // workspace operations
-    // -----------------------------------------------------------------------
-
     #[test]
     fn list_workspace_tree_returns_files_and_dirs() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1091,11 +1044,6 @@ mod tests {
         let content = fs::read_to_string(tmp.path().join("agents/bot/agent/NEW.md")).unwrap();
         assert_eq!(content, "new content");
     }
-
-    // -----------------------------------------------------------------------
-    // do_sync_agents_to_gateway
-    // -----------------------------------------------------------------------
-
     #[test]
     fn sync_agents_writes_gateway_config() {
         let tmp = tempfile::tempdir().unwrap();

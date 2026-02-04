@@ -161,8 +161,6 @@ pub fn restore_config_backup(state: &AppState) -> Result<(), String> {
     Ok(())
 }
 
-/// Ensure the desktop config file exists. In bridge mode this is
-/// `desktop-config.json`; in Tauri mode it delegates to `ensure_default_config`.
 pub fn ensure_desktop_config(state: &AppState) -> Result<(), String> {
     let config_path = state.desktop_config_path();
     if std::path::Path::new(&config_path).exists() {
@@ -260,8 +258,6 @@ fn default_desktop_config() -> serde_json::Value {
     })
 }
 
-/// Ensure the openclaw directory and default config exist.
-/// Called at startup — never overwrites existing config.
 pub fn ensure_default_config(openclaw_dir: &str) -> Result<(), String> {
     let config_path = format!("{}/openclaw.json", openclaw_dir);
     if std::path::Path::new(&config_path).exists() {

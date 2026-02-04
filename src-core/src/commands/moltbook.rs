@@ -85,11 +85,6 @@ pub fn save_skill_md(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // -----------------------------------------------------------------------
-    // generate_skill_md
-    // -----------------------------------------------------------------------
-
     #[test]
     fn generate_skill_md_includes_all_fields() {
         let data = SkillMdData {
@@ -141,11 +136,6 @@ mod tests {
         let md = generate_skill_md(data).unwrap();
         assert!(md.contains("## Channels"));
     }
-
-    // -----------------------------------------------------------------------
-    // save_skill_md
-    // -----------------------------------------------------------------------
-
     fn make_state(tmp: &std::path::Path) -> crate::state::AppState {
         let audit = tmp.join("audit.log");
         let _ = fs::write(&audit, "");
