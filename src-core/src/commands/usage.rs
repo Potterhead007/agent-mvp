@@ -1,9 +1,11 @@
+use crate::fs_utils::atomic_write;
 use crate::security::{audit, sanitize};
 use crate::state::AppState;
 use chrono::{NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,9 +72,7 @@ fn write_usage(openclaw_dir: &str, channel: &str, usage: &UserUsage) -> Result<(
         .map_err(|e| format!("Failed to serialize usage: {}", e))?;
 
     let final_path = usage_path(openclaw_dir, channel, &usage.user_id);
-    let tmp_path = format!("{}.tmp", final_path);
-    fs::write(&tmp_path, &content).map_err(|e| format!("Failed to write usage: {}", e))?;
-    fs::rename(&tmp_path, &final_path).map_err(|e| format!("Failed to finalize usage: {}", e))?;
+    atomic_write(Path::new(&final_path), &content)?;
     Ok(())
 }
 
@@ -233,11 +233,7 @@ pub fn set_default_quota(
     let backup_path = format!("{}/openclaw.json.bak", state.openclaw_dir);
     let _ = fs::copy(&config_path, &backup_path);
 
-    let tmp_path = format!("{}/openclaw.json.tmp", state.openclaw_dir);
-    fs::write(&tmp_path, &serialized)
-        .map_err(|e| format!("Failed to write temp config: {}", e))?;
-    fs::rename(&tmp_path, &config_path)
-        .map_err(|e| format!("Failed to finalize config: {}", e))?;
+    atomic_write(Path::new(&config_path), &serialized)?;
 
     audit::log_action(
         &state.audit_log_path,

@@ -1,7 +1,9 @@
+use crate::fs_utils::atomic_write;
 use crate::security::audit;
 use crate::state::AppState;
 use serde_json::Value;
 use std::fs;
+use std::path::Path;
 
 pub fn read_config(state: &AppState) -> Result<Value, String> {
     let config_path = state.desktop_config_path();
@@ -29,17 +31,13 @@ pub fn write_config(state: &AppState, config: Value) -> Result<(), String> {
     let content = serde_json::to_string_pretty(&config)
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
-    if std::path::Path::new(&config_path).exists() {
+    if Path::new(&config_path).exists() {
         let backup_path = format!("{}.bak", config_path);
         fs::copy(&config_path, &backup_path)
             .map_err(|e| format!("Failed to create config backup: {}", e))?;
     }
 
-    let tmp_path = format!("{}.tmp", config_path);
-    fs::write(&tmp_path, &content)
-        .map_err(|e| format!("Failed to write temp config: {}", e))?;
-    fs::rename(&tmp_path, &config_path)
-        .map_err(|e| format!("Failed to finalize config write: {}", e))?;
+    atomic_write(Path::new(&config_path), &content)?;
 
     audit::log_action(&state.audit_log_path, "CONFIG_WRITE", "desktop config updated");
     Ok(())
@@ -138,7 +136,7 @@ pub fn restore_config_backup(state: &AppState) -> Result<(), String> {
     let config_path = state.desktop_config_path();
     let backup_path = format!("{}.bak", config_path);
 
-    if !std::path::Path::new(&backup_path).exists() {
+    if !Path::new(&backup_path).exists() {
         return Err("No config backup found".to_string());
     }
 
@@ -163,7 +161,7 @@ pub fn restore_config_backup(state: &AppState) -> Result<(), String> {
 
 pub fn ensure_desktop_config(state: &AppState) -> Result<(), String> {
     let config_path = state.desktop_config_path();
-    if std::path::Path::new(&config_path).exists() {
+    if Path::new(&config_path).exists() {
         return Ok(());
     }
 
@@ -260,7 +258,7 @@ fn default_desktop_config() -> serde_json::Value {
 
 pub fn ensure_default_config(openclaw_dir: &str) -> Result<(), String> {
     let config_path = format!("{}/openclaw.json", openclaw_dir);
-    if std::path::Path::new(&config_path).exists() {
+    if Path::new(&config_path).exists() {
         return Ok(());
     }
 
@@ -518,6 +516,6 @@ mod tests {
 
         // File should now exist
         let config_path = format!("{}/openclaw.json", dir);
-        assert!(std::path::Path::new(&config_path).exists());
+        assert!(Path::new(&config_path).exists());
     }
 }
