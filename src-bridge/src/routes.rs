@@ -374,7 +374,9 @@ fn dispatch_command(
             let message = str_arg(&args, "message")?;
             let component = opt_str(&args, "component");
             let stack = opt_str(&args, "stack");
-            let _ = commands::logs::log_frontend_error(state, severity, message, component, stack);
+            if let Err(e) = commands::logs::log_frontend_error(state, severity, message, component, stack) {
+                eprintln!("Failed to log frontend error: {}", e);
+            }
             Ok(Value::Null)
         }
         "get_usage_stats" => {

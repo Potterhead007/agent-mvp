@@ -231,7 +231,9 @@ pub fn set_default_quota(
         .map_err(|e| format!("Failed to serialize config: {}", e))?;
 
     let backup_path = format!("{}/openclaw.json.bak", state.openclaw_dir);
-    let _ = fs::copy(&config_path, &backup_path);
+    if let Err(e) = fs::copy(&config_path, &backup_path) {
+        eprintln!("warning: config backup failed: {}", e);
+    }
 
     atomic_write(Path::new(&config_path), &serialized)?;
 
