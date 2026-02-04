@@ -4,6 +4,7 @@ use ed25519_dalek::{SigningKey, Signer};
 use serde::{Deserialize, Serialize};
 use std::fs;
 
+use crate::fs_utils::atomic_write_secure;
 use crate::state::AppState;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -216,16 +217,7 @@ pub fn generate_device_identity(state: &AppState) -> Result<String, String> {
 
     let content = serde_json::to_string_pretty(&identity)
         .map_err(|e| format!("Failed to serialize identity: {}", e))?;
-    fs::write(&identity_path, &content)
-        .map_err(|e| format!("Failed to write device identity: {}", e))?;
-
-    // Set restrictive permissions (owner-only)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&identity_path, fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("Failed to set identity permissions: {}", e))?;
-    }
+    atomic_write_secure(std::path::Path::new(&identity_path), &content)?;
 
     crate::security::audit::log_action(
         &state.audit_log_path,

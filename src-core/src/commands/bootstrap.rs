@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io;
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -375,12 +373,7 @@ fn serialize_env_map(map: &BTreeMap<String, String>) -> String {
 }
 
 fn write_env_secure(path: &Path, body: &str) -> Result<(), String> {
-    fs::write(path, body)
-        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
-    #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-        .map_err(|e| format!("Failed to set permissions on {}: {}", path.display(), e))?;
-    Ok(())
+    atomic_write_secure(path, body)
 }
 
 pub fn sync_env_to_gateway(state: &AppState) -> Result<(), String> {
