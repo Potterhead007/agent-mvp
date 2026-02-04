@@ -15,7 +15,6 @@ COPY src-tauri/Cargo.toml src-tauri/Cargo.toml
 RUN mkdir -p src-core/src src-bridge/src src-tauri/src && \
     echo "fn main() {}" > src-bridge/src/main.rs && \
     echo "" > src-core/src/lib.rs && \
-    echo "fn main() {}" > src-tauri/src/main.rs && \
     echo "" > src-tauri/src/lib.rs
 
 # Pre-build dependencies (cached layer)
