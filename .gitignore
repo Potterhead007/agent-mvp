@@ -8,6 +8,9 @@
 # OpenClaw runtime (entire directory is generated at runtime)
 .openclaw/
 
+# Stale build artifacts
+web-console/
+
 # Docker volumes
 docker-volumes/
 
