@@ -19,5 +19,8 @@ docker-volumes/
 .DS_Store
 Thumbs.db
 
+# Rust build artifacts
+target/
+
 # Node (if local dev)
 node_modules/
