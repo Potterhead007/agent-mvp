@@ -429,6 +429,14 @@ fn dispatch_command(
             commands::agent::update_agent(state, id, name, model, enabled)?;
             Ok(Value::Null)
         }
+        "update_agent_tools" => {
+            let id = str_arg(&args, "id")?;
+            let tools_val = args.get("tools").cloned().unwrap_or(Value::Array(vec![]));
+            let tools: Vec<commands::agent::ToolPermission> = serde_json::from_value(tools_val)
+                .map_err(|e| format!("Invalid tools: {}", e))?;
+            commands::agent::update_agent_tools(state, id, tools)?;
+            Ok(Value::Null)
+        }
         "delete_agent" => {
             let id = str_arg(&args, "id")?;
             let delete_files = args.get("deleteFiles").and_then(|v| v.as_bool()).unwrap_or(false);

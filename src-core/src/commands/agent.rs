@@ -7,12 +7,48 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ToolPermission {
+    pub name: String,
+    pub allowed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentInfo {
     pub id: String,
     pub name: String,
     pub personality_file: Option<String>,
     pub model: Option<String>,
     pub enabled: bool,
+    pub tools: Vec<ToolPermission>,
+}
+
+fn parse_tools_md(content: &str) -> Vec<ToolPermission> {
+    content
+        .lines()
+        .filter_map(|line| {
+            let rest = line.trim().strip_prefix("- ")?;
+            let (name, status) = rest.split_once(':')?;
+            let name = name.trim();
+            let allowed = status.trim().eq_ignore_ascii_case("allowed");
+            if name.is_empty() {
+                return None;
+            }
+            Some(ToolPermission {
+                name: name.to_string(),
+                allowed,
+            })
+        })
+        .collect()
+}
+
+fn serialize_tools_md(tools: &[ToolPermission]) -> String {
+    let mut body = String::from("# Tool Permissions\n\n");
+    for tool in tools {
+        let status = if tool.allowed { "allowed" } else { "denied" };
+        body.push_str(&format!("- {}: {}\n", tool.name, status));
+    }
+    body
 }
 
 pub fn list_agents(state: &AppState) -> Result<Vec<AgentInfo>, String> {
@@ -35,12 +71,18 @@ pub fn list_agents(state: &AppState) -> Result<Vec<AgentInfo>, String> {
             // Model can be a string ("grok-3-mini") or an object ({"primary": "xai/grok-3-mini"})
             let model = a["model"].as_str().map(|s| s.to_string())
                 .or_else(|| a["model"]["primary"].as_str().map(|s| s.to_string()));
+            let id_str = a["id"].as_str().unwrap_or("");
+            let tools_path = format!("{}/agents/{}/agent/TOOLS.md", state.openclaw_dir, id_str);
+            let tools = fs::read_to_string(&tools_path)
+                .map(|c| parse_tools_md(&c))
+                .unwrap_or_default();
             AgentInfo {
-                id: a["id"].as_str().unwrap_or("").to_string(),
+                id: id_str.to_string(),
                 name: a["name"].as_str().unwrap_or("").to_string(),
                 personality_file: a["personality"].as_str().map(|s| s.to_string()),
                 model,
                 enabled: a["enabled"].as_bool().unwrap_or(true),
+                tools,
             }
         })
         .collect();
@@ -330,6 +372,42 @@ pub fn update_agent(
     Ok(())
 }
 
+pub fn update_agent_tools(
+    state: &AppState,
+    id: String,
+    tools: Vec<ToolPermission>,
+) -> Result<(), String> {
+    sanitize::validate_id(&id)?;
+
+    let tools_path = format!("{}/agents/{}/agent/TOOLS.md", state.openclaw_dir, id);
+    if !Path::new(&format!("{}/agents/{}", state.openclaw_dir, id)).is_dir() {
+        return Err(format!("Agent '{}' not found", id));
+    }
+
+    let content = serialize_tools_md(&tools);
+    if let Some(parent) = Path::new(&tools_path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    atomic_write(Path::new(&tools_path), &content)?;
+
+    let names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    audit::log_action(
+        &state.audit_log_path,
+        "AGENT_TOOLS_UPDATE",
+        &format!("Updated tools for agent {}: {}", id, names.join(", ")),
+    );
+
+    if let Err(e) = do_sync_agents_to_gateway(state) {
+        audit::log_action(
+            &state.audit_log_path,
+            "SYNC_WARN",
+            &format!("Gateway sync after tools update failed: {}", e),
+        );
+    }
+
+    Ok(())
+}
+
 pub fn delete_agent(
     state: &AppState,
     id: String,
@@ -475,14 +553,24 @@ pub(crate) fn do_sync_agents_to_gateway(state: &AppState) -> Result<(), String> 
 
         let workspace = format!("/home/openclaw/.openclaw/agents/{}", id);
 
-        let tools = if let Some(tools_arr) = agent["tools"].as_array() {
-            let allow: Vec<serde_json::Value> = tools_arr
-                .iter()
-                .filter_map(|t| t.as_str().map(|s| serde_json::Value::String(s.to_string())))
-                .collect();
-            serde_json::json!({ "allow": allow, "deny": [] })
-        } else {
+        let tools_md_path = format!("{}/agents/{}/agent/TOOLS.md", state.openclaw_dir, id);
+        let tool_perms = fs::read_to_string(&tools_md_path)
+            .map(|c| parse_tools_md(&c))
+            .unwrap_or_default();
+        let allowed: Vec<serde_json::Value> = tool_perms
+            .iter()
+            .filter(|t| t.allowed)
+            .map(|t| serde_json::Value::String(t.name.clone()))
+            .collect();
+        let denied: Vec<serde_json::Value> = tool_perms
+            .iter()
+            .filter(|t| !t.allowed)
+            .map(|t| serde_json::Value::String(t.name.clone()))
+            .collect();
+        let tools = if allowed.is_empty() && denied.is_empty() {
             serde_json::json!({ "allow": ["*"], "deny": [] })
+        } else {
+            serde_json::json!({ "allow": allowed, "deny": denied })
         };
 
         gateway_agents.push(serde_json::json!({
@@ -1149,5 +1237,147 @@ mod tests {
         assert_eq!(gw["channels"]["telegram"]["groupId"], "-100123");
         // Disabled channels should not be synced
         assert!(gw["channels"]["discord"].is_null() || gw["channels"].get("discord").is_none());
+    }
+
+    #[test]
+    fn parse_tools_md_extracts_permissions() {
+        let content = "# Tool Permissions\n\n- web_search: allowed\n- file_write: denied\n- shell_exec: denied\n- api_call: allowed\n";
+        let tools = parse_tools_md(content);
+        assert_eq!(tools.len(), 4);
+        assert_eq!(tools[0].name, "web_search");
+        assert!(tools[0].allowed);
+        assert_eq!(tools[1].name, "file_write");
+        assert!(!tools[1].allowed);
+        assert_eq!(tools[2].name, "shell_exec");
+        assert!(!tools[2].allowed);
+        assert_eq!(tools[3].name, "api_call");
+        assert!(tools[3].allowed);
+    }
+
+    #[test]
+    fn parse_tools_md_handles_empty_and_malformed() {
+        assert!(parse_tools_md("").is_empty());
+        assert!(parse_tools_md("# Just a header\n\nno tools here").is_empty());
+        assert!(parse_tools_md("- : allowed").is_empty()); // empty name
+        // Case insensitive
+        let tools = parse_tools_md("- web_search: ALLOWED\n- file_read: Denied\n");
+        assert_eq!(tools.len(), 2);
+        assert!(tools[0].allowed);
+        assert!(!tools[1].allowed);
+    }
+
+    #[test]
+    fn serialize_tools_md_roundtrip() {
+        let tools = vec![
+            ToolPermission { name: "web_search".into(), allowed: true },
+            ToolPermission { name: "shell_exec".into(), allowed: false },
+        ];
+        let md = serialize_tools_md(&tools);
+        assert!(md.starts_with("# Tool Permissions"));
+        let parsed = parse_tools_md(&md);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].name, "web_search");
+        assert!(parsed[0].allowed);
+        assert_eq!(parsed[1].name, "shell_exec");
+        assert!(!parsed[1].allowed);
+    }
+
+    #[test]
+    fn update_agent_tools_writes_file_and_syncs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let agent_dir = tmp.path().join("agents/bot/agent");
+        fs::create_dir_all(&agent_dir).unwrap();
+        write_config(tmp.path(), serde_json::json!([
+            { "id": "bot", "name": "Bot", "model": "grok-3-mini", "enabled": true }
+        ]));
+
+        let tools = vec![
+            ToolPermission { name: "web_search".into(), allowed: true },
+            ToolPermission { name: "file_write".into(), allowed: false },
+            ToolPermission { name: "shell_exec".into(), allowed: false },
+        ];
+        update_agent_tools(&state, "bot".into(), tools).unwrap();
+
+        // Verify TOOLS.md was written
+        let content = fs::read_to_string(agent_dir.join("TOOLS.md")).unwrap();
+        assert!(content.contains("- web_search: allowed"));
+        assert!(content.contains("- file_write: denied"));
+        assert!(content.contains("- shell_exec: denied"));
+
+        // Verify gateway config got the tools
+        let gw = fs::read_to_string(tmp.path().join("compose/.openclaw/openclaw.json")).unwrap();
+        let gw: serde_json::Value = serde_json::from_str(&gw).unwrap();
+        let allow = gw["agents"]["list"][0]["tools"]["allow"].as_array().unwrap();
+        let deny = gw["agents"]["list"][0]["tools"]["deny"].as_array().unwrap();
+        assert_eq!(allow.len(), 1);
+        assert_eq!(allow[0], "web_search");
+        assert_eq!(deny.len(), 2);
+    }
+
+    #[test]
+    fn update_agent_tools_rejects_invalid_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let result = update_agent_tools(&state, "../etc".into(), vec![]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn update_agent_tools_rejects_nonexistent_agent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let result = update_agent_tools(&state, "no-such-agent".into(), vec![]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn list_agents_includes_tools() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let agent_dir = tmp.path().join("agents/bot/agent");
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::write(
+            agent_dir.join("TOOLS.md"),
+            "# Tool Permissions\n\n- web_search: allowed\n- shell_exec: denied\n",
+        ).unwrap();
+        write_config(tmp.path(), serde_json::json!([
+            { "id": "bot", "name": "Bot", "model": "grok-3-mini", "enabled": true }
+        ]));
+
+        let agents = list_agents(&state).unwrap();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].tools.len(), 2);
+        assert_eq!(agents[0].tools[0].name, "web_search");
+        assert!(agents[0].tools[0].allowed);
+        assert_eq!(agents[0].tools[1].name, "shell_exec");
+        assert!(!agents[0].tools[1].allowed);
+    }
+
+    #[test]
+    fn gateway_sync_reads_tools_from_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let state = make_state(tmp.path());
+        let agent_dir = tmp.path().join("agents/helper/agent");
+        fs::create_dir_all(&agent_dir).unwrap();
+        fs::write(
+            agent_dir.join("TOOLS.md"),
+            "# Tool Permissions\n\n- web_search: allowed\n- web_fetch: allowed\n- file_write: denied\n",
+        ).unwrap();
+        write_config(tmp.path(), serde_json::json!([
+            { "id": "helper", "name": "Helper", "model": "grok-3-mini", "enabled": true }
+        ]));
+
+        do_sync_agents_to_gateway(&state).unwrap();
+
+        let gw = fs::read_to_string(tmp.path().join("compose/.openclaw/openclaw.json")).unwrap();
+        let gw: serde_json::Value = serde_json::from_str(&gw).unwrap();
+        let tools = &gw["agents"]["list"][0]["tools"];
+        let allow = tools["allow"].as_array().unwrap();
+        let deny = tools["deny"].as_array().unwrap();
+        assert!(allow.iter().any(|v| v == "web_search"));
+        assert!(allow.iter().any(|v| v == "web_fetch"));
+        assert!(deny.iter().any(|v| v == "file_write"));
     }
 }
