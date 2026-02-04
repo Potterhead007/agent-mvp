@@ -91,17 +91,21 @@ pub fn remove_skill(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
+pub struct CreateSkillParams {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: Option<String>,
+    pub tools: Option<Vec<serde_json::Value>>,
+    pub handler_code: Option<String>,
+    pub requirements: Option<String>,
+}
+
 pub fn create_skill(
     state: &AppState,
-    id: String,
-    name: String,
-    description: String,
-    version: Option<String>,
-    tools: Option<Vec<serde_json::Value>>,
-    handler_code: Option<String>,
-    requirements: Option<String>,
+    params: CreateSkillParams,
 ) -> Result<(), String> {
+    let CreateSkillParams { id, name, description, version, tools, handler_code, requirements } = params;
     sanitize::validate_id(&id)?;
 
     let skills_dir = format!("{}/skills", state.openclaw_dir);
@@ -340,11 +344,11 @@ mod tests {
             "inputSchema": { "type": "object" }
         })];
 
-        create_skill(
-            &state, "my-skill".to_string(), "My Skill".to_string(),
-            "Does things".to_string(), Some("2.0.0".to_string()),
-            Some(tools), None, Some("requests>=2.0".to_string()),
-        ).unwrap();
+        create_skill(&state, CreateSkillParams {
+            id: "my-skill".into(), name: "My Skill".into(),
+            description: "Does things".into(), version: Some("2.0.0".into()),
+            tools: Some(tools), handler_code: None, requirements: Some("requests>=2.0".into()),
+        }).unwrap();
 
         let skill_dir = tmp.path().join("skills/my-skill");
         assert!(skill_dir.join("skill.json").exists());
@@ -366,7 +370,10 @@ mod tests {
         let state = make_state(tmp.path());
         fs::create_dir_all(tmp.path().join("skills/existing")).unwrap();
 
-        let result = create_skill(&state, "existing".to_string(), "X".to_string(), "X".to_string(), None, None, None, None);
+        let result = create_skill(&state, CreateSkillParams {
+            id: "existing".into(), name: "X".into(), description: "X".into(),
+            version: None, tools: None, handler_code: None, requirements: None,
+        });
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("already exists"));
     }
@@ -376,8 +383,14 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let state = make_state(tmp.path());
 
-        assert!(create_skill(&state, "../bad".to_string(), "X".to_string(), "X".to_string(), None, None, None, None).is_err());
-        assert!(create_skill(&state, "".to_string(), "X".to_string(), "X".to_string(), None, None, None, None).is_err());
+        assert!(create_skill(&state, CreateSkillParams {
+            id: "../bad".into(), name: "X".into(), description: "X".into(),
+            version: None, tools: None, handler_code: None, requirements: None,
+        }).is_err());
+        assert!(create_skill(&state, CreateSkillParams {
+            id: "".into(), name: "X".into(), description: "X".into(),
+            version: None, tools: None, handler_code: None, requirements: None,
+        }).is_err());
     }
 
     #[test]
@@ -385,7 +398,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let state = make_state(tmp.path());
 
-        create_skill(&state, "no-tools".to_string(), "No Tools".to_string(), "Bare".to_string(), None, None, None, None).unwrap();
+        create_skill(&state, CreateSkillParams {
+            id: "no-tools".into(), name: "No Tools".into(), description: "Bare".into(),
+            version: None, tools: None, handler_code: None, requirements: None,
+        }).unwrap();
 
         let handler = fs::read_to_string(tmp.path().join("skills/no-tools/src/handler.py")).unwrap();
         assert!(handler.contains("async def handle"));
@@ -397,7 +413,10 @@ mod tests {
         let state = make_state(tmp.path());
 
         let custom = "async def run(input, ctx): return {}".to_string();
-        create_skill(&state, "custom".to_string(), "Custom".to_string(), "C".to_string(), None, None, Some(custom.clone()), None).unwrap();
+        create_skill(&state, CreateSkillParams {
+            id: "custom".into(), name: "Custom".into(), description: "C".into(),
+            version: None, tools: None, handler_code: Some(custom.clone()), requirements: None,
+        }).unwrap();
 
         let handler = fs::read_to_string(tmp.path().join("skills/custom/src/handler.py")).unwrap();
         assert_eq!(handler, custom);

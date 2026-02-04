@@ -53,6 +53,18 @@ pub fn search_logs(
     Ok(matches)
 }
 
+/// Find the largest byte index <= `max_bytes` that sits on a UTF-8 char boundary.
+fn truncate_at_char_boundary(s: &str, max_bytes: usize) -> usize {
+    if max_bytes >= s.len() {
+        return s.len();
+    }
+    let mut i = max_bytes;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 pub fn log_frontend_error(
     state: &AppState,
     severity: String,
@@ -60,12 +72,13 @@ pub fn log_frontend_error(
     component: Option<String>,
     stack: Option<String>,
 ) -> Result<(), String> {
-    // Truncate to prevent log flooding (max 2KB per field)
-    let safe_msg = if message.len() > 2048 { &message[..2048] } else { &message };
+    // Truncate to prevent log flooding (max 2KB per field).
+    // Use floor_char_boundary to avoid panicking on multi-byte UTF-8.
+    let safe_msg = &message[..truncate_at_char_boundary(&message, 2048)];
     let location = component.as_deref().unwrap_or("unknown");
     let detail = match &stack {
         Some(s) => {
-            let safe_stack = if s.len() > 2048 { &s[..2048] } else { s };
+            let safe_stack = &s[..truncate_at_char_boundary(s, 2048)];
             format!("[{}] {} in {} | stack: {}", severity, safe_msg, location, safe_stack)
         }
         None => format!("[{}] {} in {}", severity, safe_msg, location),

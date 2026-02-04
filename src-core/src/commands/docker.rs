@@ -1,4 +1,3 @@
-use base64::Engine;
 use crate::constants::DEFAULT_GATEWAY_PORT;
 use crate::security::{audit, sanitize};
 use crate::state::AppState;
@@ -278,20 +277,8 @@ fn ensure_device_paired_with_retries(compose_dir: &str, max_attempts: u32) -> Re
         .as_str()
         .ok_or("Missing publicKeyPem in identity file")?;
 
-    // Extract raw base64url public key from SPKI PEM
-    let pem_b64: String = public_key_pem
-        .lines()
-        .filter(|l| !l.starts_with("-----"))
-        .collect::<Vec<_>>()
-        .join("");
-    let der = base64::engine::general_purpose::STANDARD
-        .decode(&pem_b64)
-        .map_err(|e| format!("Failed to decode PEM: {}", e))?;
-    let public_key_b64url = if der.len() == 44 {
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&der[12..44])
-    } else {
-        return Err(format!("Unexpected SPKI length: {}", der.len()));
-    };
+    // Extract raw base64url public key from SPKI PEM (reuses device.rs helper)
+    let public_key_b64url = super::device::public_key_raw_base64url(public_key_pem)?;
 
     // Validate inputs before passing to container to prevent injection.
     if !device_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {

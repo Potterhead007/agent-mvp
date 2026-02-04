@@ -474,7 +474,9 @@ fn dispatch_command(
             let tools = args.get("tools").and_then(|v| v.as_array()).cloned();
             let handler_code = opt_str(&args, "handlerCode");
             let requirements = opt_str(&args, "requirements");
-            commands::skills::create_skill(state, id, name, description, version, tools, handler_code, requirements)?;
+            commands::skills::create_skill(state, commands::skills::CreateSkillParams {
+                id, name, description, version, tools, handler_code, requirements,
+            })?;
             Ok(Value::Null)
         }
         "read_skill_file" => {

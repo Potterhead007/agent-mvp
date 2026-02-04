@@ -47,7 +47,7 @@ fn parse_ed25519_private_key(pem: &str) -> Result<SigningKey, String> {
     Err(format!("Unexpected PKCS8 DER length: {} (expected 48)", der.len()))
 }
 
-fn public_key_raw_base64url(pem: &str) -> Result<String, String> {
+pub fn public_key_raw_base64url(pem: &str) -> Result<String, String> {
     let der = pem_to_der(pem)?;
     // SPKI Ed25519: 12-byte prefix + 32-byte key = 44 bytes
     if der.len() == 44 {
