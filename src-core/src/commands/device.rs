@@ -56,31 +56,26 @@ pub fn public_key_raw_base64url(pem: &str) -> Result<String, String> {
     Err(format!("Unexpected SPKI DER length: {} (expected 44)", der.len()))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn build_device_auth_payload(
     device_id: &str,
-    client_id: &str,
-    client_mode: &str,
-    role: &str,
-    scopes: &[String],
+    params: &SignDeviceParams,
     signed_at_ms: u64,
-    token: &str,
-    nonce: Option<&str>,
 ) -> String {
-    let version = if nonce.is_some() { "v2" } else { "v1" };
-    let scopes_str = scopes.join(",");
+    let version = if params.nonce.is_some() { "v2" } else { "v1" };
+    let scopes_str = params.scopes.join(",");
+    let token = params.token.as_deref().unwrap_or("");
     let mut parts = vec![
         version.to_string(),
         device_id.to_string(),
-        client_id.to_string(),
-        client_mode.to_string(),
-        role.to_string(),
+        params.client_id.to_string(),
+        params.client_mode.to_string(),
+        params.role.to_string(),
         scopes_str,
         signed_at_ms.to_string(),
         token.to_string(),
     ];
     if version == "v2" {
-        parts.push(nonce.unwrap_or("").to_string());
+        parts.push(params.nonce.as_deref().unwrap_or("").to_string());
     }
     parts.join("|")
 }
@@ -135,13 +130,8 @@ pub fn sign_device_challenge(
 
     let payload = build_device_auth_payload(
         &identity.device_id,
-        &params.client_id,
-        &params.client_mode,
-        &params.role,
-        &params.scopes,
+        &params,
         signed_at_ms,
-        params.token.as_deref().unwrap_or(""),
-        params.nonce.as_deref(),
     );
 
     let signature = signing_key.sign(payload.as_bytes());
@@ -266,67 +256,49 @@ fn uuid_v4() -> String {
 mod tests {
     use super::*;
 
+    fn make_params(client_id: &str, client_mode: &str, role: &str, scopes: &[&str], token: Option<&str>, nonce: Option<&str>) -> SignDeviceParams {
+        SignDeviceParams {
+            client_id: client_id.into(),
+            client_mode: client_mode.into(),
+            role: role.into(),
+            scopes: scopes.iter().map(|s| s.to_string()).collect(),
+            token: token.map(String::from),
+            nonce: nonce.map(String::from),
+        }
+    }
+
     #[test]
     fn test_build_payload_v1() {
-        let payload = build_device_auth_payload(
-            "device123",
-            "client1",
-            "ui",
-            "operator",
-            &["operator.admin".to_string()],
-            1234567890,
-            "token123",
-            None,
-        );
-        assert_eq!(
-            payload,
-            "v1|device123|client1|ui|operator|operator.admin|1234567890|token123"
-        );
+        let params = make_params("client1", "ui", "operator", &["operator.admin"], Some("token123"), None);
+        let payload = build_device_auth_payload("device123", &params, 1234567890);
+        assert_eq!(payload, "v1|device123|client1|ui|operator|operator.admin|1234567890|token123");
     }
 
     #[test]
     fn test_build_payload_v2_with_nonce() {
-        let payload = build_device_auth_payload(
-            "device123",
-            "client1",
-            "ui",
-            "operator",
-            &["operator.admin".to_string()],
-            1234567890,
-            "token123",
-            Some("nonce456"),
-        );
-        assert_eq!(
-            payload,
-            "v2|device123|client1|ui|operator|operator.admin|1234567890|token123|nonce456"
-        );
+        let params = make_params("client1", "ui", "operator", &["operator.admin"], Some("token123"), Some("nonce456"));
+        let payload = build_device_auth_payload("device123", &params, 1234567890);
+        assert_eq!(payload, "v2|device123|client1|ui|operator|operator.admin|1234567890|token123|nonce456");
     }
 
     #[test]
     fn test_build_payload_multiple_scopes() {
-        let payload = build_device_auth_payload(
-            "dev1", "cli", "api", "admin",
-            &["read".to_string(), "write".to_string(), "delete".to_string()],
-            999, "tok", None,
-        );
+        let params = make_params("cli", "api", "admin", &["read", "write", "delete"], Some("tok"), None);
+        let payload = build_device_auth_payload("dev1", &params, 999);
         assert_eq!(payload, "v1|dev1|cli|api|admin|read,write,delete|999|tok");
     }
 
     #[test]
     fn test_build_payload_empty_scopes() {
-        let payload = build_device_auth_payload(
-            "dev1", "cli", "api", "admin",
-            &[], 999, "tok", None,
-        );
+        let params = make_params("cli", "api", "admin", &[], Some("tok"), None);
+        let payload = build_device_auth_payload("dev1", &params, 999);
         assert_eq!(payload, "v1|dev1|cli|api|admin||999|tok");
     }
 
     #[test]
     fn test_build_payload_empty_token() {
-        let payload = build_device_auth_payload(
-            "dev1", "cli", "api", "admin",
-            &["scope".to_string()], 999, "", None,
-        );
+        let params = make_params("cli", "api", "admin", &["scope"], None, None);
+        let payload = build_device_auth_payload("dev1", &params, 999);
         assert_eq!(payload, "v1|dev1|cli|api|admin|scope|999|");
     }
     #[test]

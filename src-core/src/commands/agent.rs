@@ -197,7 +197,7 @@ pub fn create_agent(
     let config_path = state.desktop_config_path();
     let content = fs::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
-    let config: serde_json::Value =
+    let mut config: serde_json::Value =
         serde_json::from_str(&content).map_err(|e| format!("Invalid JSON: {}", e))?;
     if let Some(list) = config["agents"]["list"].as_array() {
         if list.iter().any(|a| a["id"].as_str() == Some(&id)) {
@@ -224,11 +224,6 @@ pub fn create_agent(
     let boot_content = format!("# Boot Sequence\n\n1. Load personality from SOUL.md\n2. Initialize tools from TOOLS.md\n3. Agent '{}' ready\n", name);
     fs::write(format!("{}/BOOT.md", agent_dir), &boot_content)
         .map_err(|e| format!("Failed to write BOOT.md: {}", e))?;
-
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
-    let mut config: serde_json::Value =
-        serde_json::from_str(&content).map_err(|e| format!("Invalid JSON: {}", e))?;
 
     let agent_entry = serde_json::json!({
         "id": id,
