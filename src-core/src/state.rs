@@ -14,8 +14,8 @@ pub struct AppState {
     pub vault: Mutex<VaultRuntime>,
 }
 
-impl AppState {
-    pub fn new() -> Self {
+impl Default for AppState {
+    fn default() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
         let openclaw_dir = home.join(".openclaw").to_string_lossy().to_string();
         let vault_dir = home.join(".openclaw-desktop").to_string_lossy().to_string();
@@ -32,8 +32,13 @@ impl AppState {
             vault: Mutex::new(VaultRuntime::default()),
         }
     }
+}
 
-    /// In bridge mode uses `desktop-config.json` to coexist with the gateway's `openclaw.json`.
+impl AppState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn desktop_config_path(&self) -> String {
         if crate::commands::health::is_bridge_mode() {
             format!("{}/desktop-config.json", self.openclaw_dir)

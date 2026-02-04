@@ -104,7 +104,7 @@ pub(crate) mod hex {
         bytes.as_ref().iter().map(|b| format!("{:02x}", b)).collect()
     }
     pub fn decode(s: &str) -> Result<Vec<u8>, String> {
-        if s.len() % 2 != 0 {
+        if !s.len().is_multiple_of(2) {
             return Err("Odd-length hex string".to_string());
         }
         (0..s.len())

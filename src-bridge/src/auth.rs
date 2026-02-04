@@ -123,5 +123,5 @@ fn generate_pairing_code() -> String {
 fn generate_session_token() -> String {
     let mut buf = [0u8; SESSION_TOKEN_LEN];
     rand::thread_rng().fill(&mut buf);
-    base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, &buf)
+    base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, buf)
 }

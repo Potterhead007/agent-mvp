@@ -63,7 +63,7 @@ async fn handle_ws_proxy(browser_ws: WebSocket, gateway_ws_url: String) {
                 "message": format!("Could not connect to gateway: {}", e),
             });
             let _ = browser_sink
-                .send(Message::Text(err_msg.to_string().into()))
+                .send(Message::Text(err_msg.to_string()))
                 .await;
             let _ = browser_sink.send(Message::Close(None)).await;
             return;
@@ -125,20 +125,20 @@ async fn handle_ws_proxy(browser_ws: WebSocket, gateway_ws_url: String) {
 
 fn axum_msg_to_tungstenite(msg: Message) -> Option<tungstenite::Message> {
     match msg {
-        Message::Text(text) => Some(tungstenite::Message::Text(text.to_string())),
-        Message::Binary(data) => Some(tungstenite::Message::Binary(data.to_vec())),
-        Message::Ping(data) => Some(tungstenite::Message::Ping(data.to_vec())),
-        Message::Pong(data) => Some(tungstenite::Message::Pong(data.to_vec())),
+        Message::Text(text) => Some(tungstenite::Message::Text(text)),
+        Message::Binary(data) => Some(tungstenite::Message::Binary(data)),
+        Message::Ping(data) => Some(tungstenite::Message::Ping(data)),
+        Message::Pong(data) => Some(tungstenite::Message::Pong(data)),
         Message::Close(_) => None, // Signal to stop the loop
     }
 }
 
 fn tungstenite_msg_to_axum(msg: tungstenite::Message) -> Option<Message> {
     match msg {
-        tungstenite::Message::Text(text) => Some(Message::Text(text.into())),
-        tungstenite::Message::Binary(data) => Some(Message::Binary(data.into())),
-        tungstenite::Message::Ping(data) => Some(Message::Ping(data.into())),
-        tungstenite::Message::Pong(data) => Some(Message::Pong(data.into())),
+        tungstenite::Message::Text(text) => Some(Message::Text(text)),
+        tungstenite::Message::Binary(data) => Some(Message::Binary(data)),
+        tungstenite::Message::Ping(data) => Some(Message::Ping(data)),
+        tungstenite::Message::Pong(data) => Some(Message::Pong(data)),
         tungstenite::Message::Close(_) => None, // Signal to stop the loop
         tungstenite::Message::Frame(_) => None, // Raw frames — ignore
     }

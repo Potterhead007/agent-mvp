@@ -5,12 +5,8 @@
 *.pem
 *.key
 
-# OpenClaw runtime
-.openclaw/credentials/
-.openclaw/agents/*/sessions/
-.openclaw/agents/*/agent/auth-profiles.json
-.openclaw/extensions/
-.openclaw/*.log
+# OpenClaw runtime (entire directory is generated at runtime)
+.openclaw/
 
 # Docker volumes
 docker-volumes/
