@@ -99,10 +99,18 @@ async fn main() {
     };
     let pairing_code = auth_manager.current_code();
 
+    // Load gateway token for bridge→gateway authentication.
+    // In Docker, this comes from the OPENCLAW_GATEWAY_TOKEN env var.
+    let gateway_token = std::env::var("OPENCLAW_GATEWAY_TOKEN")
+        .or_else(|_| std::env::var("GATEWAY_TOKEN"))
+        .ok()
+        .filter(|t| !t.is_empty());
+
     let bridge_state = Arc::new(BridgeState {
         app_state,
         auth: auth_manager,
         gateway_ws_url: gateway_ws_url.clone(),
+        gateway_token,
     });
 
     // CORS configuration — the bridge only listens on localhost (127.0.0.1),

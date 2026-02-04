@@ -10,8 +10,6 @@ pub struct PairingState {
 }
 
 pub struct Session {
-    #[allow(dead_code)]
-    pub token: String,
     pub created_at: Instant,
     pub ttl: Duration,
 }
@@ -81,7 +79,6 @@ impl AuthManager {
 
         let token = generate_session_token();
         let session = Session {
-            token: token.clone(),
             created_at: Instant::now(),
             ttl: Duration::from_secs(SESSION_TTL_HOURS * 3600),
         };
@@ -91,10 +88,10 @@ impl AuthManager {
     }
 
     pub fn validate_token(&self, token: &str) -> bool {
-        // Check auto-token first (constant-time comparison not needed — not a
-        // high-security boundary; the auto-token is only accessible via localhost)
+        // Check auto-token first with constant-time comparison to prevent
+        // timing side-channels even on localhost.
         if let Some(ref auto) = self.auto_token {
-            if token == auto {
+            if constant_time_eq(token.as_bytes(), auto.as_bytes()) {
                 return true;
             }
         }
@@ -102,7 +99,7 @@ impl AuthManager {
         let sessions = self.sessions.lock().unwrap();
         match sessions.get(token) {
             Some(session) if !session.is_expired() => true,
-            Some(_) => false, // expired
+            Some(_) => false,
             None => false,
         }
     }
@@ -118,6 +115,16 @@ fn generate_pairing_code() -> String {
     (0..PAIRING_CODE_LEN)
         .map(|_| chars[rng.gen_range(0..chars.len())])
         .collect()
+}
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 fn generate_session_token() -> String {

@@ -449,7 +449,7 @@ mod tests {
     #[test]
     fn hex_roundtrip() {
         let data = [0u8, 1, 127, 255, 16, 32];
-        let encoded = hex::encode(&data);
+        let encoded = hex::encode(data);
         let decoded = hex::decode(&encoded).unwrap();
         assert_eq!(&data[..], &decoded[..]);
     }

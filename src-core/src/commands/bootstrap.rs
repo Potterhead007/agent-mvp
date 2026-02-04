@@ -436,10 +436,10 @@ pub fn sync_env_to_gateway(state: &AppState) -> Result<(), String> {
         if let Some(value) = secrets_map.get(*key) {
             if !value.is_empty() {
                 let safe_value = sanitize_env_value(value);
-                env_map.insert(key.to_string(), safe_value.clone());
                 if *key == "GATEWAY_TOKEN" {
-                    env_map.insert("OPENCLAW_GATEWAY_TOKEN".to_string(), safe_value);
+                    env_map.insert("OPENCLAW_GATEWAY_TOKEN".to_string(), safe_value.clone());
                 }
+                env_map.insert(key.to_string(), safe_value);
             }
         }
     }

@@ -15,6 +15,7 @@ pub struct BridgeState {
     pub app_state: AppState,
     pub auth: AuthManager,
     pub gateway_ws_url: String,
+    pub gateway_token: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -45,12 +46,22 @@ pub async fn ws_handler(
 
     // Token is valid — accept the WebSocket upgrade
     let gateway_url = state.gateway_ws_url.clone();
-    ws.on_upgrade(move |socket| handle_ws_proxy(socket, gateway_url))
+    let gateway_token = state.gateway_token.clone();
+    ws.on_upgrade(move |socket| handle_ws_proxy(socket, gateway_url, gateway_token))
 }
 
-async fn handle_ws_proxy(browser_ws: WebSocket, gateway_ws_url: String) {
+async fn handle_ws_proxy(browser_ws: WebSocket, gateway_ws_url: String, gateway_token: Option<String>) {
+    // Build the gateway URL with auth token if available
+    let url = match gateway_token {
+        Some(ref token) => {
+            let sep = if gateway_ws_url.contains('?') { '&' } else { '?' };
+            format!("{}{}token={}", gateway_ws_url, sep, token)
+        }
+        None => gateway_ws_url.clone(),
+    };
+
     // Connect to the Docker gateway
-    let gateway_conn = tokio_tungstenite::connect_async(&gateway_ws_url).await;
+    let gateway_conn = tokio_tungstenite::connect_async(&url).await;
 
     let gateway_ws = match gateway_conn {
         Ok((stream, _response)) => stream,

@@ -8,8 +8,8 @@ use crate::state::AppState;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeviceIdentityFile {
-    #[serde(rename = "version")]
-    _version: u32,
+    #[allow(dead_code)]
+    version: u32,
     device_id: String,
     public_key_pem: String,
     private_key_pem: String,
